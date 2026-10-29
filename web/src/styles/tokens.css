@@ -17,7 +17,11 @@
   --touch: 44px;
   --dur-fast: 150ms; --dur-base: 250ms; --dur-slow: 350ms;
   --blink: 1s; /* the 554 800 flashes at about 1 Hz */
-  --z-overlay: 1; --z-sheet: 2;
+  --z-overlay: 1; --z-sheet: 2; --z-chooser: 4; --z-drag: 5; /* the experiment chooser over everything; a dragged part over the chooser */
+  --blur-sheet: 20px; --blur-chooser: 24px;
+  --stroke-focus: 2px; /* inset ring on a selected card or tray part */
+  --tracking-caps: 0.04em;
+  --tray-chip-w: 9rem;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 1px rgba(0, 0, 0, 0.04);

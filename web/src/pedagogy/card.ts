@@ -6,6 +6,8 @@ import { crystalsLoaded, loadAbsorbers, loadCrystals } from '../physics/tables'
 import { en } from './i18n/en'
 import { es } from './i18n/es'
 import { clearExports } from './csv'
+import type { Experiment } from '../apparatus/assembly'
+import { getExperiment } from './experiment'
 import { getMode, setHints, setMode, type AppMode } from './mode'
 import { applyInitial, setActiveTask, type GuidedTask } from './task'
 import { task as attenuationMaterial } from './tasks/attenuation-material'
@@ -25,15 +27,27 @@ import { task as xrfCalibration } from './tasks/xrf-calibration'
 import { task as xrfCoin } from './tasks/xrf-coin'
 
 export const TASKS: GuidedTask[] = [kalphaThirdOrder, lifKalphaAngle, lineThreshold, lambdaThreeOrders, moseleyKEdges, background, attenuationThickness, attenuationMaterial, xrfCalibration, xrfBrass, xrfCoin, forgeKalpha10, forgeSi222, forgeKcl111, forgeDoublet]
+/** The Bragg-at-NaCl/LiF tasks (the rest of the Bragg experiment's list needs another set-up). */
+const BRAGG_CORE = ['kalpha-third-order', 'lif-kalpha-angle', 'line-threshold', 'lambda-three-orders']
 const MODES: AppMode[] = ['explore', 'lab']
+
+/** Which experiment a task belongs to: attenuation (leaflet P6.3.2.1) or Bragg (the rest: Bragg, LiF, Moseley, XRF, Forge). */
+export const taskExperiment = (k: GuidedTask): Experiment => k.experiment ?? (k.id.startsWith('attenuation-') || k.id === 'background' ? 'attenuation' : 'bragg')
 
 /** Guided-task strings in the current language. */
 export const pt = () => (getLang() === 'es' ? es : en)
 const esc = (x: string) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;')
 
-type Hooks = { onMode: () => void; onFocus: (keys: Key[] | null) => void; onAct: () => void }
+type Hooks = {
+  onMode: () => void
+  onFocus: (keys: Key[] | null) => void
+  onAct: () => void
+  /** False while the bench is still being assembled: the task list is disabled with a hint. Default: always ready. */
+  ready?: () => boolean
+  notReadyHint?: () => string
+}
 
-export function mountLearn(root: HTMLElement, a: Apparatus, { onMode, onFocus, onAct }: Hooks) {
+export function mountLearn(root: HTMLElement, a: Apparatus, { onMode, onFocus, onAct, ready = () => true, notReadyHint = () => '' }: Hooks) {
   let task: GuidedTask | null = null
   let step = 0 // 0 predict · 1 act · 2 observe · 3 explain
   let prediction: string | null = null // the number as typed, or the chosen option's index
@@ -42,6 +56,25 @@ export function mountLearn(root: HTMLElement, a: Apparatus, { onMode, onFocus, o
   let actFrom = 0 // exposure-log (or MCA-log) length when the act step opened: such tasks count only newer records
   const logLen = (k: GuidedTask | null) => (k?.countsMcaRuns ? a.mcaLog.length : a.exposureLog.length)
   const teacher = new URLSearchParams(location.search).has('teacher')
+
+  /** A task as a list item. */
+  const taskItem = (k: GuidedTask) => {
+    const p = pt()
+    const x = p.task[k.id as keyof typeof p.task]
+    return `<li><button data-task="${k.id}"${ready() ? '' : ' disabled'}>
+            <span class="chip">${x.concept}</span>
+            <strong>${x.title}</strong>
+            <span class="meta">${p.levels[k.level]} · ${p.modeNote[k.mode]}</span>
+          </button></li>`
+  }
+  /** The list of the experiment at hand; under Bragg the NaCl/LiF Bragg tasks come first and the practices that need
+   * another set-up (Moseley, XRF, Forge) follow in a labelled group. They work as always. */
+  const taskGroups = () => {
+    const mine = TASKS.filter((k) => taskExperiment(k) === getExperiment())
+    const core = getExperiment() === 'bragg' ? mine.filter((k) => BRAGG_CORE.includes(k.id)) : mine
+    const other = getExperiment() === 'bragg' ? mine.filter((k) => !BRAGG_CORE.includes(k.id)) : []
+    return `<ul class="task-list">${core.map(taskItem).join('')}</ul>${other.length ? `<h3 class="task-group">${pt().otherPractices}</h3><ul class="task-list">${other.map(taskItem).join('')}</ul>` : ''}`
+  }
 
   const listHtml = () => {
     const s = t()
@@ -54,16 +87,8 @@ export function mountLearn(root: HTMLElement, a: Apparatus, { onMode, onFocus, o
       <p class="note">${s.modeHint[getMode()]}</p>
       ${notice ? `<p class="hint" role="alert">${notice}</p>` : ''}
       <h3>${p.tasks}</h3>
-      <ul class="task-list">
-        ${TASKS.map((k) => {
-          const x = p.task[k.id as keyof typeof p.task]
-          return `<li><button data-task="${k.id}">
-            <span class="chip">${x.concept}</span>
-            <strong>${x.title}</strong>
-            <span class="meta">${p.levels[k.level]} · ${p.modeNote[k.mode]}</span>
-          </button></li>`
-        }).join('')}
-      </ul>`
+      ${ready() ? '' : `<p class="hint" role="status">${notReadyHint()}</p>`}
+      ${taskGroups()}`
   }
 
   /** The task's checklist as a list, "abierto ✓", "Zr –", …; done items in the text colour (element symbols stay as they are). */
@@ -137,6 +162,7 @@ export function mountLearn(root: HTMLElement, a: Apparatus, { onMode, onFocus, o
     if (next === 1) onAct()
   }
   const start = (k: GuidedTask) => {
+    if (!ready()) return
     if (a.busy && !window.confirm(pt().busyConfirm)) return // preparing the bench would cut the running measurement short
     const restart = task === k // a free-pick task started over keeps the student's crystal
     task = k
@@ -227,5 +253,14 @@ export function mountLearn(root: HTMLElement, a: Apparatus, { onMode, onFocus, o
   const sheetClosed = () => {
     if (task && step !== 1) lock(false)
   }
-  return { build, render, actText, sheetClosed }
+  /** The experiment changed: drop the open task (its setup belongs to the other experiment) and show the list. */
+  const reset = () => {
+    task = null
+    loading = false
+    notice = ''
+    lock(false)
+    setHints(true)
+    build()
+  }
+  return { build, render, actText, sheetClosed, reset }
 }

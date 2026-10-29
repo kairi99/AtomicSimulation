@@ -344,24 +344,24 @@ def test_direct_rate_falls_off_axis_and_rejects_bad_sensor():
 
 
 def test_material_plate_needs_more_current_for_heavy_absorbers():
-    # EPN P1 run 2a: 0.4 mm plates at 30 kV. Fe…Ag transmit < 1 %, so at 0.02 mA they sit near the
+    # EPN P1 run 2a: 0.5 mm plates at 30 kV. Fe…Ag transmit < 1 %, so at 0.02 mA they sit near the
     # GM background floor; the guide's 1 mA lifts them well clear of it with negligible dead time,
     # while the light plates would paralyse the counter at 1 mA (PARAMETERS.md, material plate).
     bg = DEFAULT.background_per_s
     true = DEFAULT.replace(tau_s=0.0, background_per_s=0.0)
     rates = {
         m: [direct_rate(30.0, i, ((m, areal_density_mg_cm2(m, mm)),)) for i in (0.02, 1.0)]
-        for m, mm in WHEELS_MM["material"][:6]
+        for m, mm in WHEELS_MM["material"][1:]
     }
     for m in ("Fe", "Cu", "Zr", "Ag"):
         low, high = rates[m]
         assert low < 100 * bg  # within two decades of the background floor
-        assert high > 300 * bg
-        r_true = direct_rate(30.0, 1.0, ((m, areal_density_mg_cm2(m, 0.4)),), true)
+        assert high > 50 * bg  # Cu at 0.5 mm: 21/s, 100× the background
+        r_true = direct_rate(30.0, 1.0, ((m, areal_density_mg_cm2(m, 0.5)),), true)
         assert r_true * DEFAULT.tau_s < 0.1  # dead time negligible at 1 mA
     for m in ("Polystyrene", "Al"):
         assert rates[m][0] > 1000 * bg
-        r_true = direct_rate(30.0, 1.0, ((m, areal_density_mg_cm2(m, 0.4)),), true)
+        r_true = direct_rate(30.0, 1.0, ((m, areal_density_mg_cm2(m, 0.5)),), true)
         assert r_true * DEFAULT.tau_s > 1  # would paralyse a real GM
     # Zr transmits more than Fe: Mo Kα sits just below the Zr K edge.
     assert rates["Zr"][1] > rates["Fe"][1]

@@ -163,6 +163,8 @@ export class Apparatus {
   private mcaKey = ''
   private mcaCache: { counts: ArrayLike<number>; live: number } | null = null
   private _exposures: ExposureRecord[] = []
+  /** How many times the ZERO key was processed (accepted: not during a program, not with the energy detector). The assembly's last step watches it. */
+  zeroPresses = 0
   private _mcaRuns: McaRecord[] = []
   /** The conditions when the current run started counting from real time 0 (set on its first tick). */
   private mcaRun: { key: string; sample: string; collimatorFilter: string | null; sensorFilter: string | null; u: number; i: number; target: number; changed: boolean; seen: boolean; loggedS?: number } | null = null
@@ -367,7 +369,8 @@ export class Apparatus {
         }
         return
       case 'ZERO':
-        this.path = [{ target: 0, sensor: 0 }]
+        this.zeroPresses++
+        this.path = this.target === 0 && this.sensor === 0 ? [] : [{ target: 0, sensor: 0 }] // nothing to drive when already there
         this.coupleRef = { target: 0, sensor: 0 }
         return
       case 'RESET': // defaults, HV off, arms driven home (§7 b5)
@@ -383,7 +386,8 @@ export class Apparatus {
           _mcaRuns: this._mcaRuns,
           mcaRun: this.mcaRun,
           mca: this.mca, // a separate device: the panel's RESET does not touch it
-          path: [{ target: 0, sensor: this.energy ? ENERGY_SENSOR : 0 }],
+          zeroPresses: this.zeroPresses,
+          path: this.target === 0 && this.sensor === (this.energy ? ENERGY_SENSOR : 0) ? [] : [{ target: 0, sensor: this.energy ? ENERGY_SENSOR : 0 }],
         })
         if (this.energy) this.alert = 'detectorReset' // the real RESET would drive the detector into the collimator
         return

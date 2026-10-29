@@ -1,4 +1,4 @@
-// Lab mode: six 0.4 mm plates and the open beam at 30 kV (EPN Práctica 1, run 2a). Misconception: "μ always
+// Lab mode: six 0.5 mm plates and the open beam at 30 kV (EPN Práctica 1, run 2a). Misconception: "μ always
 // grows with Z" (Zr, above Fe in Z, transmits more at Mo Kα because that line lies just under its K edge).
 // The app checks the exposures taken, never the student's μ: each one unsaturated and standing above background.
 import type { ExposureRecord } from '../../apparatus/apparatus'
@@ -8,8 +8,8 @@ import type { GuidedTask } from '../task'
 import { expectedOf, isSaturated, plateRuns, variance } from './attenuation-common'
 
 const U_DECI_KV = 300
-const SLOTS = [0, 1, 2, 3, 4, 5, 6] // polystyrene, Al, Fe, Cu, Zr, Ag, open
-const KEYS = ['polystyrene', 'Al', 'Fe', 'Cu', 'Zr', 'Ag', 'open']
+const SLOTS = [0, 1, 2, 3, 4, 5, 6] // open, polystyrene, Al, Fe, Cu, Zr, Ag (LD P6.3.2.1)
+const KEYS = ['open', 'polystyrene', 'Al', 'Fe', 'Cu', 'Zr', 'Ag']
 
 /** An exposure that counts: 30 kV, no counter saturation, and (a plate) its net rate above the background. */
 function good(r: ExposureRecord): boolean {

@@ -21,16 +21,18 @@ first reading is at least ≈ 950 /s.
 |---|---|---|---|---|---|
 | 1a thickness | Al 0.5 → 3.0 mm in 0.5 mm steps | 21 kV | 0.05 mA | ≥ 3 × 20–30 s | Δβ = 0, SCAN, read the mean with REPLAY |
 | 1b thickness + Zr (optional) | same, Zr filter on the collimator | 21 kV | 0.15 mA | 200 s | |
-| 2a material | C*, Al, Fe, Cu, Zr, Ag in increasing target angle | 30 kV | 0.02 mA (first three, 0°–20°), 1 mA (30°–60°) | 20–30 s, ≥ 3 runs | the heavy ones need the higher current |
+| 2a material | open, C*, Al, Fe, Cu, Zr, Ag in increasing target angle (0°–60°) | 30 kV | 0.02 mA (first three, 0°–20°), 1 mA (30°–60°) | 20–30 s, ≥ 3 runs | the heavy ones need the higher current |
 | 2b material + Zr (optional) | same, Zr filter | — | — | — | repeat 2a |
 | 3 background | none | 0 kV | 0 mA | ≥ 100 s | Δβ = 0 |
 
 \* The guide says C. In the LD catalog the lightest absorber of 554 834 is **polystyrene** (Z ≈ 6).
-The guide gives the material-set thickness as 0.5 mm, the same as the LD catalog. **The project uses 0.4 mm**
-(user decision, 2026-10-14). The Al thicknesses are as listed.
+The guide gives the material-set thickness as 0.5 mm, the same as the LD catalog. **The project uses 0.5 mm** (user decision 2026-10-29, superseding 0.4 mm of 2026-10-14).
+The Al thicknesses are as listed.
 
-**Ambiguity (open question 10).** Run 2a lists 4 positions (30°–60°) for the last 3 materials. Until the lab answers,
-assume polystyrene, Al, Fe, Cu, Zr, Ag at 0°–50° and an open slot at 60°.
+**Slot order (open question 10, answered 2026-10-29 from LD leaflet P6.3.2.1).** The material plate holds, at
+0°, 10° … 60°: open, polystyrene ("C"), Al, Fe, Cu, Zr, Ag. The leaflet measures them in that order, the first three at
+0.02 mA and the last four at 1 mA, like the Al plate whose open slot is also at 0°. The leaflet uses 0.5 mm, as does the
+project.
 
 **Analysis asked.** T vs thickness; μ from the slope of ln T vs thickness; T and μ for each material; μ vs Z.
 
@@ -78,7 +80,7 @@ composition from Gaussian fits or deconvolution, compared with literature; the s
 
 | Item | Facts | Source |
 |---|---|---|
-| Absorption accessory 554 834 | Al steps 0.5 … 3.0 mm; material absorbers polystyrene, Al, Fe, Cu, Zr, Ag (catalog thickness 0.5 mm; project uses 0.4 mm) | leybold-shop.com, product 554834 |
+| Absorption accessory 554 834 | Al steps 0.5 … 3.0 mm; material absorbers polystyrene, Al, Fe, Cu, Zr, Ag (thickness 0.5 mm) | leybold-shop.com, product 554834 |
 | Set of absorber foils 554 832 | Al 0.5, Fe 0.5, Cu 0.07, **Zr 0.05, Mo 0.1, Ag 0.05, In 0.3 mm**; foils 10 mm dia. in a 24 mm frame, fit the collimator or the counter holder | leybold-shop.com, product 554832 |
 | X-ray energy detector 559 938 | Si-PIN photodiode, Peltier-cooled; active area 0.8 mm dia.; Si ≈ 150 µm; plastic entrance window ≈ 40 µm graphite equivalent; range ≈ 2–60 keV | LD instruction sheet 559 938 §5 |
 | 559 938 resolution | FWHM(E) = 2√(2 ln 2) · √(σ_el² + F·ε·E), σ_el ≈ 160 eV, F ≈ 0.15 (Fano), ε = 3.8 eV per e–h pair; 0.40 keV at Fe Kα 6.40 keV | LD instruction sheet 559 938 §5–6 |

@@ -5,6 +5,8 @@ import { FOILS_MG_CM2 } from '../physics/tables'
 import type { AppMode } from './mode'
 
 export type GuidedTask = {
+  /** Which experiment lists it in Learn (default: attenuation for ids `attenuation-*` and `background`, else Bragg; see taskExperiment). */
+  experiment?: 'bragg' | 'attenuation'
   id: string // also the key of its strings in pedagogy/i18n
   mode: AppMode
   level: 1 | 2 | 3 // 1 intro · 2 core · 3 challenge

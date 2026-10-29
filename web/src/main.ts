@@ -3,15 +3,22 @@
 // the camera flies to; Learn and Huygens stay inspectors.
 import './styles/app.css'
 import { Apparatus } from './apparatus/apparatus'
+import { Assembly, ZERO_STEP, sameSetup, type BenchAssemblyHooks, type Experiment } from './apparatus/assembly'
 import { getLang, setLang, t, type Lang } from './i18n'
 import { mountLearn, pt } from './pedagogy/card'
 import { mountExplore } from './pedagogy/explore'
+import { getExperiment, hasRememberedExperiment, markAssembled, setExperiment, wasAssembled } from './pedagogy/experiment'
 import { getMode, setMode } from './pedagogy/mode'
 import type { Focus, mountBench, Pick } from './views/bench'
+import type { Reserve } from './views/bench-assembly-geometry'
 import type { mountForge } from './views/forge'
 import { readPalette } from './views/canvas'
 import { mountGoniometer } from './views/goniometer'
 import { mountAbout } from './views/about'
+import { at } from './views/assembly-i18n'
+import { mountAssemblyHud } from './views/assembly-hud'
+import { mountChooser } from './views/chooser'
+import { absorbersLoaded, loadAbsorbers } from './physics/tables'
 import { mountHuygens } from './views/huygens'
 import { mountPanel } from './views/panel'
 import { mountSetup } from './views/setup'
@@ -30,21 +37,27 @@ app.innerHTML = `
   <header class="topbar">
     <h1 data-title></h1>
     <div class="tools">
-      <label class="scale"><span class="sim-tag" aria-hidden="true" data-sim-tag></span><span class="visually-hidden" data-scale-label></span>
-        <select data-scale>${SCALES.map((x) => `<option value="${x}">${x === Infinity ? '' : `×${x}`}</option>`).join('')}</select>
-      </label>
+      <button class="tool" data-experiment></button>
       <button class="tool" data-learn aria-controls="learn" aria-pressed="false"></button>
-      <button class="tool explore" data-huygens aria-controls="huygens" aria-pressed="false">λ</button>
       <button class="tool explore" data-forge aria-controls="forge" aria-pressed="false"></button>
-      <button class="tool" data-theme></button>
-      <button class="tool" data-lang></button>
-      <button class="tool about-btn" data-about></button>
+      <button class="tool more" data-more aria-controls="tools-more" aria-expanded="false">⋯</button>
+      <div class="tools-more" id="tools-more" data-open="false">
+        <label class="scale"><span class="sim-tag" aria-hidden="true" data-sim-tag></span><span class="visually-hidden" data-scale-label></span>
+          <select data-scale>${SCALES.map((x) => `<option value="${x}">${x === Infinity ? '' : `×${x}`}</option>`).join('')}</select>
+        </label>
+        <button class="tool explore" data-huygens aria-controls="huygens" aria-pressed="false">λ</button>
+        <button class="tool" data-theme></button>
+        <button class="tool" data-lang></button>
+        <button class="tool about-btn" data-about></button>
+      </div>
     </div>
   </header>
   <main class="stage" data-view="room">
     <canvas class="bench" data-bench role="img"></canvas>
     <p class="no3d" data-no3d hidden></p>
     <button class="act-strip" data-act hidden></button>
+    <aside class="asm" data-asm></aside>
+    <p class="bench-tip" data-tip hidden></p>
     <p class="toast" role="status" data-toast></p>
     <div class="dock" role="group" data-dock>
       <button class="gear" data-go="panel"><span aria-hidden="true">⚙︎</span><span data-settings></span></button>
@@ -78,6 +91,7 @@ app.innerHTML = `
       <div class="huygens" data-huygens-body></div>
     </aside>
   </main>
+  <div class="chooser" data-chooser hidden inert></div>
   <div class="forge-sheet" id="forge" role="dialog" aria-modal="true" tabindex="-1" data-open="false" inert></div>`
 const q = <T extends HTMLElement = HTMLElement>(sel: string) => app.querySelector<T>(sel)!
 
@@ -99,6 +113,13 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
 })
 
 const apparatus = new Apparatus()
+// The bench is assembled by the student before an experiment runs (apparatus/assembly.ts). `bench` hooks are the
+// contract with the 3D bench: it reads hooks.assembly and assigns hooks.resolveZone (see BenchAssemblyHooks).
+// Gating: until the assembly is done, the panel/monitor/chamber cards and the Learn tasks refuse with a hint; the
+// Apparatus itself is untouched (no panel, no HV; its interlock already refuses HV with the door open).
+const benchHooks: BenchAssemblyHooks = { assembly: new Assembly(getExperiment()) }
+const asm = (): Assembly => benchHooks.assembly
+const ready = (): boolean => asm().done()
 const sound = mountSound(apparatus)
 const gonio = mountGoniometer(q<HTMLCanvasElement>('[data-gonio]'), apparatus)
 const spectrum = mountSpectrum(q('[data-spectrum]'), apparatus)
@@ -115,6 +136,8 @@ const explore = mountExplore(q('[data-explore]'), apparatus)
 const setup = mountSetup(q<HTMLDetailsElement>('[data-setup]'), apparatus)
 const learn = mountLearn(q('[data-learn-body]'), apparatus, {
   onMode: applyMode,
+  ready,
+  notReadyHint: () => at().gateTasks,
   onFocus: (keys) => {
     panel.focus(keys)
     // the settings button leads there: a badge, and the same said to screen readers
@@ -163,6 +186,9 @@ function labels() {
   for (const b of app.querySelectorAll('.focus-card > [data-back]')) (b.setAttribute('aria-label', s.back), (b.textContent = '×'))
   q('[data-bench]').setAttribute('aria-label', s.benchLabel)
   q('[data-no3d]').textContent = s.no3d
+  q('[data-experiment]').textContent = at().experiment
+  q('[data-more]').setAttribute('aria-label', at().moreTools)
+  q('[data-more]').title = at().moreTools
   q('[data-settings]').textContent = s.settings
   q('[data-go="monitor"]').textContent = s.monitor
   q('[data-go="chamber"]').textContent = s.chamber
@@ -198,6 +224,7 @@ let bench: ReturnType<typeof mountBench> | null = null
 let focus: Focus = 'room'
 function setFocus(f: Focus) {
   if (f === focus) return
+  if (f !== 'room' && !ready() && !(f === 'panel' && asm().current()?.id === ZERO_STEP)) return showToast(at().gateHint) // the last step needs the panel alone
   const prev = focus
   focus = f
   stage.dataset.view = f
@@ -214,6 +241,20 @@ function onPick(p: Pick | null) {
 }
 let toastTimer: ReturnType<typeof setTimeout> | undefined
 function toggleDoor() {
+  if (!apparatus.doorsClosed) {
+    // closing: the bench must be fully assembled, and the Apparatus must really carry the assembled setup (the absorber
+    // tables may still be loading: closing the door then would run the attenuation with the crystal)
+    const gateState = asm().doorGate(apparatus.setup)
+    if (gateState === 'notReady') {
+      bench?.shake()
+      return showToast(at().gateHint)
+    }
+    if (gateState === 'loading') {
+      bench?.shake()
+      void loadAbsorbers().then(syncApparatus, () => showToast(at().loadFailed))
+      return showToast(at().loadingParts)
+    }
+  }
   if (apparatus.setDoors(!apparatus.doorsClosed)) return
   // Refused by the interlock: say why.
   bench?.shake()
@@ -221,15 +262,140 @@ function toggleDoor() {
 }
 function showToast(text: string) {
   const el = q('[data-toast]')
+  // Below desktop the assembly HUD is a bottom sheet: the toast rides above it (the measured height), not over it.
+  const hudEl = q('[data-asm]')
+  const hr = hudEl.getBoundingClientRect()
+  if (!DESKTOP.matches && !hudEl.hidden && hr.width > 0) el.style.bottom = `${Math.max(0, stage.getBoundingClientRect().bottom - hr.top) + 8}px`
+  else el.style.removeProperty('bottom')
   el.textContent = '' // so a repeated message is announced again
   el.textContent = text
   el.dataset.show = 'true'
   clearTimeout(toastTimer)
   toastTimer = setTimeout(() => (el.dataset.show = 'false'), TOAST_MS)
 }
+// ── Experiment choice and assembly ──
+let chosen: Experiment | null = null
+const hud = mountAssemblyHud(q('[data-asm]'), benchHooks, {
+  toast: (m) => showToast(m),
+  teacherShortcut: () => wasAssembled(asm().experiment),
+  onTeacher: () => {
+    // the absorber tables must be in before the Apparatus can mount a wheel or a filter
+    const go = () => {
+      asm().autoComplete() // mounts the setup and closes the door through syncApparatus
+      apparatus.press('ZERO') // the last step, done for the teacher
+    }
+    if (asm().experiment === 'attenuation' && !absorbersLoaded()) void loadAbsorbers().then(go, () => showToast(at().loadFailed))
+    else go()
+  },
+  title: () => at().cards[asm().experiment].title,
+})
+const chooser = mountChooser(q('[data-chooser]'), {
+  onChoose: chooseExperiment,
+  active: () => chosen,
+  remembered: () => (hasRememberedExperiment() ? getExperiment() : null),
+})
+/** The Apparatus carries the setup the assembly describes (or the assembly has none yet). */
+const setupMatches = (): boolean => asm().doorGate(apparatus.setup) !== 'loading'
+let adopting = false
+/** Mirror the assembly on the Apparatus: mount the setup while the door is open, close the door for a teacher shortcut. */
+function syncApparatus() {
+  if (adopting) return // the assembly just took over the Apparatus's own setup
+  const A = asm()
+  const want = A.setup()
+  if (want && !apparatus.doorsClosed && !sameSetup(apparatus.setup, want)) {
+    if ((want.holder.endsWith('Wheel') || want.collimatorFilter) && !absorbersLoaded()) void loadAbsorbers().then(syncApparatus, () => {})
+    else {
+      try {
+        apparatus.mount(want)
+      } catch {}
+    }
+  }
+  if (A.done() && A.doorClosed() && !apparatus.doorsClosed && setupMatches()) apparatus.setDoors(true)
+}
+// One source of truth for the swappable parts: a setup that changes on the Apparatus from outside (a guided task, the setup
+// tray) is adopted by the assembly, so its tray, swap rules and 3D parts follow.
+let seenSetup = apparatus.setup
+let seenZero = apparatus.zeroPresses
+function followApparatus() {
+  if (apparatus.zeroPresses !== seenZero) {
+    seenZero = apparatus.zeroPresses
+    asm().notifyZero()
+  }
+  if (apparatus.setup !== seenSetup) {
+    seenSetup = apparatus.setup
+    adopting = true
+    try {
+      asm().adopt(apparatus.setup)
+    } finally {
+      adopting = false
+    }
+  }
+}
+let lastReady = false
+function gate() {
+  const on = ready()
+  const zeroStep = asm().current()?.id === ZERO_STEP
+  for (const b of app.querySelectorAll<HTMLElement>('.dock [data-go]')) b.setAttribute('aria-disabled', String(!(on || (zeroStep && b.dataset.go === 'panel'))))
+  if (on && !lastReady) markAssembled(asm().experiment)
+  if (on !== lastReady) {
+    lastReady = on
+    learn.build()
+  }
+}
+function chooseExperiment(exp: Experiment) {
+  chosen = exp
+  setExperiment(exp)
+  // a fresh bench: HV off, arms home, default setup, door open for the assembly
+  apparatus.press('RESET')
+  apparatus.setDoors(false)
+  try {
+    apparatus.mount({ holder: 'crystal', crystal: 'NaCl', collimatorFilter: null, sensorFilter: null, detector: 'gm' })
+  } catch {}
+  seenSetup = apparatus.setup
+  seenZero = apparatus.zeroPresses
+  if (exp === 'attenuation') void loadAbsorbers().catch(() => {}) // the wheels and the Zr foil need the tables
+  setFocus('room')
+  learn.reset()
+  const A = new Assembly(exp)
+  A.onChange(syncApparatus)
+  A.onChange(gate)
+  hud.attach(A) // replaces benchHooks.assembly and tells the bench (onAssembly)
+  lastReady = false
+  gate()
+  showToast(at().switched(at().cards[exp].title))
+}
+{
+  const A = asm()
+  A.onChange(syncApparatus)
+  A.onChange(gate)
+  hud.attach(A)
+}
+
+// The part of the stage the assembly HUD covers (css px): a side column on desktop, a bottom sheet (above the dock) below it.
+// While the HUD is a sheet its height only grows during one assembly, so the chamber does not jump from step to step.
+let sheetPx = 0
+let sheetFor: Assembly | null = null
+function benchReserve(): Reserve {
+  const none = { left: 0, right: 0, top: 0, bottom: 0 }
+  const hudEl = q('[data-asm]')
+  const st = stage.getBoundingClientRect()
+  const dock = q('[data-dock]').getBoundingClientRect()
+  const dockPx = Math.max(0, st.bottom - dock.top + 8)
+  if (hudEl.hidden || hudEl.getBoundingClientRect().width === 0) return { ...none, bottom: dockPx }
+  const r = hudEl.getBoundingClientRect()
+  if (DESKTOP.matches) return { ...none, left: Math.max(0, r.right - st.left + 16), bottom: dockPx }
+  if (sheetFor !== asm()) ((sheetFor = asm()), (sheetPx = 0))
+  sheetPx = Math.max(sheetPx, st.bottom - r.top + 8)
+  return { ...none, bottom: Math.max(sheetPx, dockPx) }
+}
+
 import('./views/bench')
   .then(({ mountBench }) => {
-    bench = mountBench(q<HTMLCanvasElement>('[data-bench]'), apparatus, { monitor: monitorView, dialDeg: panel.dialDeg }, onPick)
+    bench = mountBench(q<HTMLCanvasElement>('[data-bench]'), apparatus, { monitor: monitorView, dialDeg: panel.dialDeg }, onPick, benchHooks, {
+      reserve: benchReserve,
+      tip: q('[data-tip]'),
+    })
+    if (import.meta.env.DEV) (window as unknown as { __benchZones: unknown }).__benchZones = () => bench?.debug()
     if (focus !== 'room') bench.fly(focus) // a card opened before the chunk arrived
   })
   .catch(() => {
@@ -294,7 +460,9 @@ app.addEventListener('click', (e) => {
   if (e.target === stage) return setFocus('room') // the scrim round an open card
   const b = (e.target as HTMLElement).closest<HTMLElement>('button')
   if (!b) return
-  if (b.dataset.go) setFocus(b.dataset.go as Focus)
+  if (b.dataset.more !== undefined) setMore(q('#tools-more').dataset.open !== 'true')
+  else if (b.dataset.experiment !== undefined) chooser.open()
+  else if (b.dataset.go) setFocus(b.dataset.go as Focus)
   else if (b.dataset.back !== undefined) setFocus('room')
   else if (b.dataset.door !== undefined) toggleDoor()
   else if (b.dataset.forge !== undefined) void openForge(forgeSheet.dataset.open !== 'true')
@@ -318,6 +486,8 @@ app.addEventListener('click', (e) => {
     spectrum.build()
     mca?.build()
     huygens.build()
+    hud.render()
+    if (chooser.isOpen()) chooser.build()
     explore.build()
     setup.build()
     learn.build()
@@ -327,7 +497,15 @@ app.addEventListener('click', (e) => {
 q<HTMLSelectElement>('[data-scale]').addEventListener('change', (e) => {
   apparatus.timeScale = Number((e.target as HTMLSelectElement).value)
 })
+function setMore(open: boolean) {
+  q('#tools-more').dataset.open = String(open)
+  q('[data-more]').setAttribute('aria-expanded', String(open))
+}
+addEventListener('pointerdown', (e) => {
+  if (q('#tools-more').dataset.open === 'true' && !(e.target as HTMLElement).closest('.tools')) setMore(false)
+})
 addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && q('#tools-more').dataset.open === 'true') return void (setMore(false), q('[data-more]').focus())
   if (e.key !== 'Escape') return
   if (forgeSheet.dataset.open === 'true') return void openForge(false)
   const inspector = inspectors.find((o) => o.dataset.open === 'true')
@@ -373,6 +551,8 @@ function frame(now: number) {
   shown.render() // before the bench: the monitor copies it
   bench?.render(dtS)
   doorLabel()
+  if (asm().doorClosed() !== apparatus.doorsClosed) asm().setDoor(apparatus.doorsClosed) // the Apparatus owns the door
+  followApparatus()
   if (focus === 'chamber') {
     // the counter's reading next to the goniometer, as the device's top display shows it
     const d = apparatus.display()
@@ -401,3 +581,4 @@ function frame(now: number) {
   requestAnimationFrame(frame)
 }
 requestAnimationFrame(frame)
+chooser.open() // at every page open the student chooses the experiment first

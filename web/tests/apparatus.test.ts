@@ -528,14 +528,14 @@ describe('setup (G1.7)', () => {
     expect(at(-50)).toBe(directRate(0, 0))
   })
 
-  test('material plate: open slot at 60°; saturation boundary', () => {
+  test('material plate: open slot at 0° (LD P6.3.2.1); saturation boundary', () => {
     const a = running(30, 0.02, { holder: 'materialWheel' })
     a.press('TARGET')
-    a.target = 600
-    expect(a.expectedRate()).toBe(directRate(30, 0.02))
     a.target = 0
-    expect(a.saturated).toBe(true) // polystyrene 0.4 mm
+    expect(a.expectedRate()).toBe(directRate(30, 0.02))
     a.target = 100
+    expect(a.saturated).toBe(true) // polystyrene 0.5 mm
+    a.target = 200
     expect(a.saturated).toBe(false) // Al
   })
 
@@ -751,5 +751,48 @@ describe('crystal picker (C2.2)', () => {
     }
     expect(x.expectedRate()).not.toBe(y.expectedRate())
     expect(x.crystal.d_pm).toBeCloseTo(201.35, 2)
+  })
+})
+
+describe('ADJUST right after RESET/ZERO, and the ZERO counter', () => {
+  beforeAll(loadAbsorbers)
+
+  test('arms already at 0: RESET and ZERO queue no move, so ADJUST works at once (not silently ignored)', () => {
+    const a = device()
+    a.press('RESET')
+    expect(a.moving).toBe(false)
+    a.press('ZERO')
+    expect(a.moving).toBe(false)
+    a.press('TARGET')
+    a.adjust(100)
+    expect(a.target).toBe(100)
+  })
+
+  test('an exposure at 10° taken first, right after mounting the material wheel, logs slot 1 (not the open slot)', () => {
+    const a = device()
+    a.press('RESET')
+    a.setDoors(false)
+    a.mount({ holder: 'materialWheel', crystal: 'NaCl', collimatorFilter: null, sensorFilter: null })
+    a.setDoors(true)
+    a.press('TARGET')
+    a.adjust(100)
+    set(a, 'U', 300 - a.u)
+    set(a, 'I', 1 - a.i)
+    set(a, 'DBETA', -a.dBeta)
+    set(a, 'DT', 5 - a.dt)
+    a.press('SCAN')
+    a.tick(SAFETY_S + 6)
+    expect(a.exposureLog.at(-1)).toMatchObject({ target: 100, slot: 1 })
+  })
+
+  test('zeroPresses counts processed ZERO keys only (not during a program)', () => {
+    const a = device()
+    expect(a.zeroPresses).toBe(0)
+    a.press('ZERO')
+    expect(a.zeroPresses).toBe(1)
+    a.press('HV')
+    expect(a.busy).toBe(true)
+    a.press('ZERO') // ignored during the self-test
+    expect(a.zeroPresses).toBe(1)
   })
 })

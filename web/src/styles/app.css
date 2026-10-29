@@ -21,6 +21,9 @@ button, select { font: inherit; color: inherit; }
   padding: var(--space-2) var(--space-4);
 }
 .tools { display: flex; align-items: center; gap: var(--space-1); flex: none; }
+/* Less-used tools (time scale, λ, theme, language, About): inline on wide screens, a "⋯" menu on phones. */
+.tools-more { display: contents; }
+.tool.more { display: none; }
 .tool, .scale select {
   min-height: var(--touch); min-width: var(--touch); border: none; border-radius: var(--radius-full);
   background: transparent; cursor: pointer; touch-action: manipulation;
@@ -29,7 +32,7 @@ button, select { font: inherit; color: inherit; }
 .tool[aria-pressed='true'] { background: var(--fill); font-weight: 600; }
 .tool:disabled { color: var(--label-3); cursor: not-allowed; }
 .scale { display: flex; align-items: center; gap: var(--space-1); }
-.sim-tag { font: var(--text-caption); color: var(--label-2); letter-spacing: 0.04em; }
+.sim-tag { font: var(--text-caption); color: var(--label-2); letter-spacing: var(--tracking-caps); }
 .scale select { background: var(--fill); padding: 0 var(--space-3); font-variant-numeric: tabular-nums; }
 
 /* ── Bench: the 3D room fills the stage; everything else floats over it ── */
@@ -333,6 +336,15 @@ button, select { font: inherit; color: inherit; }
   .topbar { padding: var(--space-1) var(--space-2) var(--space-1) var(--space-4); }
   /* The tools need the whole width at 360 px; document.title still names the app. */
   .topbar h1, .sim-tag { display: none; }
+  .tools { flex: 1 1 auto; justify-content: flex-end; min-width: 0; position: relative; }
+  .tool.more { display: inline-grid; place-items: center; }
+  .tools-more {
+    display: none; position: absolute; z-index: var(--z-chooser); top: calc(100% + var(--space-1)); right: 0;
+    align-items: center; gap: var(--space-1); padding: var(--space-1); border-radius: var(--radius-m);
+    background: var(--surface); box-shadow: var(--shadow-sheet); flex-wrap: wrap; justify-content: flex-end; max-inline-size: calc(100vw - 2 * var(--space-2));
+  }
+  .tools-more[data-open='true'] { display: flex; }
+  .tool { padding: 0 var(--space-2); }
   .dock { left: var(--space-2); right: var(--space-2); translate: none; justify-content: space-between; bottom: calc(var(--space-2) + env(safe-area-inset-bottom)); }
   .dock .tool { flex: 1 1 0; min-width: var(--touch); padding: 0 var(--space-1); font: var(--text-footnote); overflow: hidden; text-overflow: ellipsis; }
   .gear { padding: 0 var(--space-3); }
@@ -576,3 +588,146 @@ button, select { font: inherit; color: inherit; }
 .about .close { top: var(--space-4); right: var(--space-4); }
 .about[open] { animation: fade-in var(--dur-base) var(--ease-out); }
 @media (prefers-reduced-motion: reduce) { .about[open] { animation: none; } }
+
+/* ── Experiment chooser: a calm full-screen dialog over the bench ── */
+.chooser {
+  position: fixed; inset: 0; z-index: var(--z-chooser); overflow-y: auto; display: grid; place-items: center;
+  padding: var(--space-4); background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(var(--blur-chooser)); -webkit-backdrop-filter: blur(var(--blur-chooser));
+  animation: chooser-in var(--dur-slow) var(--ease-out);
+}
+.chooser[hidden] { display: none; }
+@keyframes chooser-in { from { opacity: 0; } }
+.chooser-inner { inline-size: min(100%, 60rem); display: grid; gap: var(--space-4); }
+.chooser h2 { margin: 0; font: var(--text-title); }
+.chooser-lead { margin: 0; color: var(--label-2); font: var(--text-body); }
+.chooser-cards { display: grid; gap: var(--space-3); grid-template-columns: minmax(0, 1fr); }
+.exp-card {
+  display: grid; gap: var(--space-2); text-align: start; padding: var(--space-4); min-height: var(--touch); color: var(--label);
+  border: var(--stroke-hair) solid var(--separator); border-radius: var(--radius-l); background: var(--surface);
+  box-shadow: var(--shadow-1); cursor: pointer; font: var(--text-callout); touch-action: manipulation;
+  transition: box-shadow var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.exp-card:hover { border-color: var(--accent); }
+.exp-card[aria-current='true'] { border-color: var(--accent); box-shadow: inset 0 0 0 var(--stroke-focus) var(--accent); }
+.exp-title { font: var(--text-headline); }
+.exp-ref, .exp-gear-label { font: var(--text-caption); color: var(--label-2); letter-spacing: var(--tracking-caps); }
+.exp-badge { justify-self: start; padding: 0 var(--space-2); border-radius: var(--radius-full); background: var(--accent-fill); color: var(--on-accent); font: var(--text-caption); }
+.exp-goal { color: var(--label-2); }
+.exp-gear { margin: 0; padding-inline-start: var(--space-4); font: var(--text-footnote); color: var(--label); }
+.exp-go { justify-self: end; font-weight: 600; color: var(--accent); }
+.exp-keep { justify-self: start; padding: 0 var(--space-4); background: var(--fill); }
+.chooser .hint { margin: 0; }
+@media (min-width: 720px) { .chooser-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (prefers-reduced-motion: reduce) { .chooser { animation: none; } }
+
+/* ── Assembly HUD: checklist, distances and the parts tray, floating over the bench ── */
+.asm {
+  position: absolute; z-index: var(--z-overlay); top: var(--space-2); left: var(--space-2);
+  inline-size: min(22rem, calc(100cqw - 2 * var(--space-2))); max-block-size: calc(100cqh - var(--touch) - 4 * var(--space-2) - var(--space-4));
+  overflow-y: auto; overscroll-behavior: contain; padding: 0 var(--space-3); border-radius: var(--radius-m); display: grid; align-content: start;
+  background: color-mix(in srgb, var(--surface) 90%, transparent); backdrop-filter: blur(var(--blur-sheet)); -webkit-backdrop-filter: blur(var(--blur-sheet));
+  box-shadow: var(--shadow-sheet); font: var(--text-callout);
+}
+.asm-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-2); align-content: start; padding-block-end: var(--space-3); }
+/* The current step (text, why, distance) stays first and in view while the tray and checklist scroll beneath it. */
+.asm-cur {
+  position: sticky; top: 0; z-index: var(--z-overlay); display: grid; gap: var(--space-2); padding-block: var(--space-3) var(--space-2);
+  background: var(--surface); border-block-end: var(--stroke-hair) solid var(--separator);
+}
+.asm[hidden] { display: none; }
+.stage:not([data-view='room']) .asm { display: none; }
+.asm h2 { margin: 0; font: var(--text-headline); }
+.asm h3 { margin: var(--space-2) 0 0; font: var(--text-footnote); color: var(--label-2); }
+.asm p { margin: 0; }
+.asm-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-2); }
+.asm-count { font: var(--text-footnote); color: var(--label-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.asm-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); }
+.asm-steps li { display: flex; gap: var(--space-2); align-items: flex-start; min-block-size: var(--space-6); }
+.asm-steps li[data-state='todo'] { color: var(--label-2); opacity: 0.8; }
+.asm-steps li[data-state='done'] { color: var(--label-2); }
+.asm-mark {
+  flex: none; inline-size: var(--space-5); block-size: var(--space-5); border-radius: var(--radius-full); display: grid; place-items: center;
+  font: var(--text-caption); background: var(--fill); font-variant-numeric: tabular-nums;
+}
+.asm-steps li[data-state='done'] .asm-mark { background: var(--success); color: var(--on-accent); }
+.asm-steps li[data-state='current'] .asm-mark { background: var(--accent-fill); color: var(--on-accent); }
+.asm-steps li[data-state='current'] strong { font: var(--text-headline); }
+.asm-list > summary { display: flex; align-items: center; min-block-size: var(--touch); cursor: pointer; font: var(--text-footnote); color: var(--label-2); }
+.asm-step-text { display: grid; gap: var(--space-1); padding-block: var(--space-1); }
+.asm-why { font: var(--text-footnote); color: var(--label-2); }
+.asm-dist { display: grid; gap: var(--space-1); padding: var(--space-2); border-radius: var(--radius-s); background: var(--fill); }
+.asm-dist label { font: var(--text-footnote); }
+.asm-dist-row { display: flex; align-items: center; gap: var(--space-2); }
+.asm-dist-row input[type='range'] { flex: 1 1 auto; min-inline-size: 0; min-block-size: var(--touch); accent-color: var(--accent); }
+.asm-dist-row input[type='number'] {
+  inline-size: 4.5rem; min-block-size: var(--touch); border: none; border-radius: var(--radius-s); background: var(--surface); color: var(--label);
+  padding: 0 var(--space-2); font: inherit; font-variant-numeric: tabular-nums;
+}
+.asm-tray { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); }
+.asm-part {
+  inline-size: 100%; min-block-size: var(--touch); display: flex; align-items: center; gap: var(--space-2); text-align: start;
+  padding: var(--space-1) var(--space-3); border: var(--stroke-hair) solid var(--separator); border-radius: var(--radius-m);
+  background: var(--surface); color: var(--label); font: var(--text-callout); cursor: grab; touch-action: none; user-select: none;
+}
+.asm-part[aria-pressed='true'] { box-shadow: inset 0 0 0 var(--stroke-focus) var(--accent); }
+.asm-part[aria-disabled='true'] { color: var(--label-3); cursor: default; border-style: dashed; }
+.asm-part[data-on] { color: var(--label-2); }
+.asm-grip { color: var(--label-3); letter-spacing: -0.2em; }
+.asm-part-name { flex: 1 1 auto; }
+.asm-part-state { font: var(--text-caption); color: var(--label-2); white-space: nowrap; }
+.asm-zones { display: grid; gap: var(--space-1); padding: var(--space-2); border-radius: var(--radius-s); background: var(--fill); }
+.asm-zones-title { font: var(--text-footnote); color: var(--label-2); }
+.asm-zones button {
+  min-block-size: var(--touch); text-align: start; padding: 0 var(--space-3); border: none; border-radius: var(--radius-s);
+  background: var(--surface); color: var(--label); font: var(--text-callout); cursor: pointer; touch-action: manipulation;
+}
+.asm-zones .asm-cancel { color: var(--label-2); background: none; }
+.asm-teacher { justify-self: start; min-block-size: var(--touch); }
+.asm-complete { display: grid; grid-template-columns: 1fr auto; gap: var(--space-1) var(--space-2); align-items: start; }
+.asm-complete span { grid-column: 1; font: var(--text-footnote); color: var(--label-2); }
+.asm-complete .tool { grid-column: 2; grid-row: 1 / span 2; }
+.asm-swap summary { cursor: pointer; min-block-size: var(--touch); display: flex; align-items: center; font: var(--text-footnote); color: var(--label-2); }
+.asm-ghost {
+  position: fixed; inset: 0 auto auto 0; z-index: var(--z-drag); pointer-events: none; translate: var(--space-2) var(--space-2);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-full); background: var(--accent-fill); color: var(--on-accent);
+  box-shadow: var(--shadow-sheet); font: var(--text-callout); white-space: nowrap;
+}
+.dock [aria-disabled='true'] { color: var(--label-3); background: none; }
+.gear[aria-disabled='true'] { background: var(--fill); color: var(--label-3); }
+/* Desktop: the HUD is a side column and the 3D view is shifted to the free area (bench.ts reads its box). */
+.asm-now { display: grid; gap: var(--space-1); }
+.asm-now strong { font: var(--text-headline); }
+.asm-now:focus-visible, .asm-complete:focus-visible { outline-offset: var(--space-1); }
+.asm-part { touch-action: pan-y; }
+.asm-grip { touch-action: none; min-inline-size: var(--space-4); }
+/* Phone and tablet: a bottom sheet above the dock (current step + a tray that scrolls sideways; the checklist unfolds) so the chamber stays in view above. */
+@media (max-width: 1023px) {
+  .asm {
+    inset: auto var(--space-2) calc(var(--space-4) + var(--touch) + 3 * var(--space-1) + var(--space-2) + env(safe-area-inset-bottom)) var(--space-2);
+    inline-size: auto; max-block-size: 44cqh;
+  }
+  .asm { grid-template-columns: minmax(0, 1fr); overflow-x: hidden; }
+  .asm-body, .asm-cur { gap: var(--space-1); }
+  .asm-cur { padding-block: var(--space-2) var(--space-1); }
+  .asm h3, .asm .hint[id='asm-tray-hint'] { display: none; }
+  .asm-tray { display: flex; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; padding-block-end: var(--space-1); }
+  .asm-tray li { flex: 0 0 auto; scroll-snap-align: start; }
+  .asm-part { inline-size: auto; min-inline-size: var(--tray-chip-w); touch-action: pan-x; }
+  .asm-grip { min-inline-size: var(--touch); min-block-size: var(--touch); display: grid; place-items: center; margin-inline-start: calc(-1 * var(--space-2)); }
+  .asm-part-state { display: none; }
+  .asm-steps li { min-block-size: 0; }
+}
+@media (max-width: 599px) {
+  .asm { inset-block-end: calc(var(--space-2) + var(--touch) + 3 * var(--space-1) + var(--space-2) + env(safe-area-inset-bottom)); }
+}
+/* One floating label in the 3D view: the zone under a dragged part, or the live s₁ / s₂ while a distance is dragged. */
+.bench-tip {
+  position: absolute; z-index: var(--z-overlay); inset: 0 auto auto 0; pointer-events: none; padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full); background: var(--surface); color: var(--label); box-shadow: var(--shadow-sheet);
+  font: var(--text-footnote); font-variant-numeric: tabular-nums; white-space: nowrap; translate: -50% -140%;
+}
+.bench-tip[hidden] { display: none; }
+.bench[data-grab] { cursor: grab; }
+.bench[data-grabbing] { cursor: grabbing; }
+.learn h3.task-group { margin-block-start: var(--space-5); }

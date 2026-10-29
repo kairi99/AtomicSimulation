@@ -157,7 +157,7 @@ flowchart TD
   - **P1 attenuation:** collimator and GM counter; s₁ = s₂ = 5 cm.
     - Al absorbers 0.5 → 3.0 mm in 0.5 mm steps on the absorption accessory (554 834), selected by turning the target arm to ≈ 0°, 10° … 60°.
     - Δβ = 0 (exposure-timer mode); 21 kV, 0.05 mA (0.15 mA and 200 s with the Zr filter).
-    - Material set polystyrene (the guide calls it C), Al, Fe, Cu, Zr, Ag, **0.4 mm** each (user decision 2026-10-14; the LD catalog says 0.5 mm), at 30 kV: 0.02 mA for the first three, 1 mA for the rest.
+    - Material set polystyrene (the guide calls it C), Al, Fe, Cu, Zr, Ag, **0.5 mm** each (LD catalog and P6.3.2.1; user decision 2026-10-29, superseding 0.4 mm of 2026-10-14), at 30 kV: 0.02 mA for the first three, 1 mA for the rest.
     - Background run at 0 kV / 0 mA for ≥ 100 s. Calibration hint: ≥ 950 /s unattenuated.
     - Analysis: T vs d, ln T vs d → μ, T and μ per material, μ vs Z.
   - **P5 Moseley:** NaCl, COUPLED, Δβ = 0.1°, β 3.7° → 7.5°, 35 kV, 1 mA, Δt = 5 s; Zr, Mo, Ag, In foils at the
@@ -327,10 +327,10 @@ Dead time at ~1000 /s also bends the data a little, which is real and worth a no
 
 #### S1 — Python
 - [x] **L2.1** (data half done in G1.7: `filters.WHEELS_MM`, exported) Absorber sets as data: the Al wheel (0, 0.5 … 3.0 mm) and the material wheel (polystyrene, Al, Fe, Cu, Zr, Ag,
-      0.4 mm each). At 0.4 mm the Fe … Ag absorbers transmit far below 1 %, so background and dead time dominate their
+      0.5 mm each since 2026-10-29, 0.4 mm before). At 0.5 mm the Fe … Ag absorbers transmit far below 1 %, so background and dead time dominate their
       readings. That is real (it's why the guide raises I to 1 mA for them) and a teaching point, so don't hide it.
-      As built (2026-10-20): corrected. At 0.02 mA, Fe … Ag (T = 5e-4 … 5e-3) read 8–80× the background. At the guide's 1 mA they read 80–780/s
-      with Rτ ≤ 0.08, so dead time is negligible for them. Dead time limits the *light* plates (Rτ 10–16 at 1 mA), hence 0.02 mA for those.
+      As built (2026-10-20): corrected. At 0.02 mA, Fe … Ag (T = 1e-4 … 2e-3 at 0.5 mm; 5e-4 … 5e-3 at the original 0.4 mm) read 2–22× the background. At the guide's 1 mA they read 21–264/s
+      with Rτ ≤ 0.03, so dead time is negligible for them. Dead time limits the *light* plates (Rτ 10–16 at 1 mA), hence 0.02 mA for those.
       Zr transmits more than Fe (the Mo K lines sit below the Zr edge). Table in `PARAMETERS.md`; test `test_material_plate_needs_more_current_for_heavy_absorbers`.
 - [x] **L2.2** (done in G1.3/G1.4: `direct_per_s` = 2.97e5, `background_per_s` = 0.2, both in `PARAMETERS.md`) Set `K_direct` and `background_per_s` from [[#Calibration anchors]] (no EPN data exists; mark both as anchored to
       published or guide values, not fitted to measurements).
@@ -774,10 +774,10 @@ The engine already exists after C1. What's missing is **data for any element** i
 ## Open questions
 
 > [!question] Still open
-> 10. **Absorption wheel positions (P1, run 2a):** the guide lists four positions (30°–60°) for the last three materials. Which one
->     is empty? Until the lab answers, assume the wheel order polystyrene, Al, Fe, Cu, Zr, Ag at 0°–50° and an open slot at 60°.
->     Evidence (apparatus review 2026-10-14): at the guide's 1 mA, an open slot anywhere in 30°–60° saturates the GM (true ≈ 2.8e5/s, Rτ ≈ 28),
->     so the guide presumably never measures the open slot at 1 mA. An open slot at 0° would fit the Al plate, but it contradicts "the first three materials at 0°–20°".
+> 10. **Absorption wheel positions (P1, run 2a): ANSWERED 2026-10-29.** LD leaflet P6.3.2.1 (attenuation of x-rays) measures at 30 kV in the
+>     order open, C (polystyrene), Al at about 0°, 10°, 20° (0.02 mA), then Fe, Cu, Zr, Ag at about 30°, 40°, 50°, 60° (1 mA). So the material
+>     plate is open at 0°, then polystyrene, Al, Fe, Cu, Zr, Ag, like the Al plate (open at 0°); this also fits the guide's "first three at 0°–20°".
+>     The earlier assumption (open slot at 60°) was wrong. The same day the user also switched the plate thickness from 0.4 to 0.5 mm (leaflet and catalog value).
 
 > 12. **GM counter ε(λ) (model decision, physics review 2026-10-22):** `tube_factor` / `direct_rate` count photons with ε = 1,
 >     and the Fig. 4 absorber fit absorbs part of ε(λ), while the XRF flux anchor weights by `detector.gm_efficiency` on top.
@@ -794,8 +794,8 @@ The engine already exists after C1. What's missing is **data for any element** i
 > 8. **Naming:** rename the app to **X-Ray Lab** (G0.5).
 > 9. **Coin:** use the **Ecuador 1 centavo 2003** (Cu-plated steel). The US cent is dropped.
 > 1. **Thicknesses.**
->    - Material wheel (absorption accessory 554 834): **0.4 mm** each (user). The LD catalog says 0.5 mm; we use the user's value
->      and note the catalog value in `PARAMETERS.md`. The "C" absorber is **polystyrene** (LD catalog), not graphite.
+>    - Material wheel (absorption accessory 554 834): **0.5 mm** each (LD catalog and P6.3.2.1; changed from the user's 0.4 mm on 2026-10-29, new user decision).
+>      The superseded 0.4 mm is noted in `PARAMETERS.md`. The "C" absorber is **polystyrene** (LD catalog), not graphite.
 >    - Al wheel: 0.5 … 3.0 mm in 0.5 mm steps.
 >    - Moseley foils (set of absorber foils 554 832): Zr 0.05, Mo 0.1, Ag 0.05, In 0.3 mm (the set also has Al 0.5, Fe 0.5 and Cu 0.07 mm).
 > 2. **Crystals:** NaCl, LiF, Si, calcite, mica (user) → [[#C1 — Crystal engine and presets (Python)|C1 presets]].

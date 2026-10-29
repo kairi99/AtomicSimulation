@@ -467,37 +467,38 @@ describe('attenuation tasks (EPN Práctica 1)', () => {
   describe('attenuation-material', () => {
     test('0.01 mA for the light slots and the open beam, 0.02/1 mA for the rest: met', () => {
       const a = mounted(attMaterial, 'materialWheel')
-      expose(a, 0, 30, 30, 0.01) // polystyrene
-      for (let k = 1; k <= 2; k++) expose(a, 10 * k, 30, 30, 0.02)
-      for (let k = 3; k <= 5; k++) expose(a, 10 * k, 30, 30, 1)
-      expose(a, 60, 30, 30, 1) // open beam, saturated
+      expose(a, 10, 30, 30, 0.01) // polystyrene: the first exposure right after mounting is not at 0° (it once logged the open slot)
+      expose(a, 20, 30, 30, 0.02) // Al
+      for (let k = 3; k <= 6; k++) expose(a, 10 * k, 30, 30, 1)
+      expose(a, 0, 30, 30, 1) // open beam, saturated
       expect(attMaterial.success(a)).toBe(false)
       expect(done(attMaterial, a)).toBe(6)
-      expose(a, 60, 30, 30, 0.02) // 0.02 mA already saturates the open beam slightly
+      expose(a, 0, 30, 30, 0.02) // 0.02 mA already saturates the open beam slightly
       expect(attMaterial.success(a)).toBe(false)
-      expose(a, 60, 30, 30, 0.01)
+      expose(a, 0, 30, 30, 0.01)
       expect(attMaterial.success(a)).toBe(true)
     })
 
     test('a heavy plate at 0.02 mA and 1 s stays in the background: not met', () => {
       const a = mounted(attMaterial, 'materialWheel')
-      expose(a, 0, 30, 30, 0.01)
-      for (let k = 1; k <= 2; k++) expose(a, 10 * k, 30, 30, 0.02)
-      for (let k = 3; k <= 5; k++) expose(a, 10 * k, 1, 30, 0.02)
-      expose(a, 60, 30, 30, 0.01)
+      expose(a, 10, 30, 30, 0.01)
+      expose(a, 20, 30, 30, 0.02)
+      for (let k = 3; k <= 6; k++) expose(a, 10 * k, 1, 30, 0.02)
+      expose(a, 0, 30, 30, 0.01) // open
       expect(attMaterial.success(a)).toBe(false)
-      expect(done(attMaterial, a)).toBe(4)
+      expect(done(attMaterial, a)).toBe(3)
     })
 
     test('a filter mounted for one slot: not met (one common set of filters)', () => {
       const a = mounted(attMaterial, 'materialWheel')
-      expose(a, 0, 30, 30, 0.01)
-      for (let k = 1; k <= 2; k++) expose(a, 10 * k, 30, 30, 0.02)
+      expose(a, 10, 30, 30, 0.01)
+      expose(a, 20, 30, 30, 0.02)
       for (let k = 3; k <= 5; k++) expose(a, 10 * k, 30, 30, 1)
+      expose(a, 0, 30, 30, 0.01) // open
       a.setDoors(false)
       a.mount({ holder: 'materialWheel', crystal: 'NaCl', collimatorFilter: null, sensorFilter: 'Zr' })
       a.setDoors(true)
-      expose(a, 60, 30, 30, 0.01)
+      expose(a, 60, 30, 30, 1)
       expect(attMaterial.success(a)).toBe(false)
     })
 

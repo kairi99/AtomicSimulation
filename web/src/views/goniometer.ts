@@ -1,4 +1,5 @@
-// Goniometer 554 831 seen from above (a schematic, not a photo): X-ray tube, collimator, what is mounted on
+// Goniometer 554 831 seen from the front, through the experiment-chamber door (a schematic, not a photo; the beam runs
+// left to right and positive angles turn the arms counter-clockwise, i.e. upward, as in the 3D bench): X-ray tube, collimator, what is mounted on
 // the target arm at β (the NaCl crystal, an absorber plate or nothing), the GM counter on the sensor arm and
 // any foils at the collimator and the counter. It draws the apparatus state. The beam brightness comes from
 // the apparatus (the physics model), never from the view.
@@ -117,7 +118,7 @@ export function mountGoniometer(canvas: HTMLCanvasElement, a: Apparatus): (dtS: 
       ctx.lineWidth = k
     }
 
-    // Turntable
+    // Goniometer face
     ctx.beginPath()
     ctx.arc(cx, cy, 1.1 * u, 0, 2 * Math.PI)
     ctx.strokeStyle = P.separator

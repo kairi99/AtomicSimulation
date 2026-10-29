@@ -46,12 +46,12 @@ P5_BETA_RANGE_DEG = (3.7, 7.5)
 P5_STEP_DEG = 0.1
 P5_DT_S = 5.0
 P5_Z = {"Zr": 40, "Mo": 42, "Ag": 47, "In": 49}
-# EPN Práctica 1 (attenuation): GM counter in the direct beam, Al wheel and 0.4 mm material plates.
+# EPN Práctica 1 (attenuation): GM counter in the direct beam, Al wheel and 0.5 mm material plates.
 P1_AL_GATE_S = 90.0  # 3 × 30 s
 P1_ZR_GATE_S = 200.0
 P1_BG_GATE_S = 100.0
 P1_MATERIAL_GATE_S = 90.0
-P1_PLATE_I_MA = {"Polystyrene": 0.02, "Al": 0.02, "Fe": 0.02, "Cu": 1.0, "Zr": 1.0, "Ag": 1.0}
+P1_PLATE_I_MA = {"Polystyrene": 0.02, "Al": 0.02, "Fe": 1.0, "Cu": 1.0, "Zr": 1.0, "Ag": 1.0}
 P1_PLATE_Z = {"Polystyrene": 6, "Al": 13, "Fe": 26, "Cu": 29, "Zr": 40, "Ag": 47}
 LD_EXAMPLE_R_PER_M = 1.056e7  # LD's published Moseley example
 LD_EXAMPLE_SIGMA_K = 2.7
@@ -346,10 +346,10 @@ def _attenuation_section(rng):
         "read R₀ before and after.",
         "",
     ]
-    d_plate = 0.4
+    d_plate = 0.5
     open_obs = read(30.0, 0.02, (), P1_MATERIAL_GATE_S)
     out += [
-        "**Material plates (run 2a).** 0.4 mm plates at 30 kV, "
+        "**Material plates (run 2a).** 0.5 mm plates at 30 kV, "
         f"{P1_MATERIAL_GATE_S:.0f} s each, 0.02 mA for the first three and 1 mA for the rest. "
         "The open beam is read at 0.02 mA. Each rate is corrected for dead time, the background "
         "is subtracted, and the open beam is scaled by the current "
@@ -375,7 +375,7 @@ def _attenuation_section(rng):
     out += [
         "",
         "Each plate gives one effective value, −ln T/ρx, for the beam it actually sees. Fe and "
-        "Cu pass only 0.05–0.3 %, and what survives is the hard end of the 30 kV continuum "
+        "Cu pass only 0.01–0.13 %, and what survives is the hard end of the 30 kV continuum "
         "(≈ 23–29 keV), where their μ/ρ is far below the Mo Kα value. Ag filters the beam "
         "itself: its K edge is at 25.5 keV, so the survivors sit just below it (≈ 22–25 keV), "
         "again far below its Mo Kα value. Zr is the anomaly. In the monochromatic column μ/ρ "
@@ -386,10 +386,10 @@ def _attenuation_section(rng):
         "only heavy plate above its Mo Kα value because Mo Kα sits near the minimum of Zr's μ/ρ "
         "over this beam, so every other photon (softer, below the edge, or harder, above it) is "
         'absorbed more. A student\'s μ/ρ-vs-Z plot should show the drop at Zr and not "fix" '
-        "it. The light plates and the open beam are read at 1700–2450/s, where the counter "
-        "loses 17–25 %. Without the dead-time correction Al would give 3.5 instead of 4.4 "
+        "it. The light plates and the open beam are read at 1500–2450/s, where the counter "
+        "loses 15–25 %. Without the dead-time correction Al would give 3.5 instead of 4.4 "
         "cm²/g, and τ = 90 µs instead of 100 µs moves it by 2.5 %. The polystyrene point has "
-        "the largest error because its ρx (0.042 g/cm²) is the smallest: the counting error of "
+        "the largest error because its ρx (0.053 g/cm²) is the smallest: the counting error of "
         "ln T is divided by it.",
         "",
     ]

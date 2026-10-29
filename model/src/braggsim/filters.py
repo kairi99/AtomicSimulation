@@ -21,12 +21,12 @@ ABSORBERS = ("Polystyrene", "Al", "Fe", "Cu", "Zr", "Mo", "Ag", "In")
 FOILS_MM = {"Zr": 0.05, "Mo": 0.1, "Ag": 0.05, "In": 0.3, "Al": 0.5, "Fe": 0.5, "Cu": 0.07}
 
 # The two plates of the absorption accessory 554 834: 7 slots at target angles 0°, 10° … 60°
-# ((material, thickness_mm) or None = open). Assumptions (model/PARAMETERS.md): the material plate's
-# 0.4 mm is the user's decision (the catalog says 0.5 mm) and its open slot is at 60°
-# (open question 10 in Plan-New-Features.md).
+# ((material, thickness_mm) or None = open). The material plate's 0.5 mm is the LD catalog and
+# LD P6.3.2.1 value (user decision 2026-10-29, superseding 0.4 mm); the slot order
+# (open at 0°, then polystyrene "C", Al, Fe, Cu, Zr, Ag) comes from LD P6.3.2.1 (open question 10).
 WHEELS_MM = {
     "al": (None, *(("Al", 0.5 * k) for k in range(1, 7))),
-    "material": (*((m, 0.4) for m in ("Polystyrene", "Al", "Fe", "Cu", "Zr", "Ag")), None),
+    "material": (None, *((m, 0.5) for m in ("Polystyrene", "Al", "Fe", "Cu", "Zr", "Ag"))),
 }
 
 # μ/ρ is tabulated on this fixed grid and interpolated log–log, so the web app can load the very

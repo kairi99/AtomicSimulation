@@ -350,7 +350,7 @@ Areal density = 100 · thickness_mm · ρ (xraylib; polystyrene from the NIST co
 |---|---|---|
 | Foil set 554 832 | Zr 0.05, Mo 0.1, Ag 0.05, In 0.3, Al 0.5, Fe 0.5, Cu 0.07 | LD catalog |
 | 554 834 Al plate | open, Al 0.5, 1.0, 1.5, 2.0, 2.5, 3.0 (slots at 0°, 10° … 60°) | LD catalog |
-| 554 834 material plate | Polystyrene, Al, Fe, Cu, Zr, Ag at 0.4 each, open at 60° | 0.4 mm by user decision (the catalog says 0.5 mm); open slot at 60° is an assumption (open question 10) |
+| 554 834 material plate | open, Polystyrene, Al, Fe, Cu, Zr, Ag (slots at 0°, 10° … 60°), 0.5 each | Slot order and 0.5 mm from LD P6.3.2.1 (2026-10-29; open question 10 answered); 0.5 mm also in the LD catalog. User decision 2026-10-29 supersedes the earlier 0.4 mm (2026-10-14) |
 
 Foil set 554 832 as used (thickness from the LD catalog × bulk density from xraylib `ElementDensity`; added 2026-10-20):
 
@@ -367,20 +367,20 @@ Foil set 554 832 as used (thickness from the LD catalog × bulk density from xra
 Bulk density is an assumption: a rolled foil can be a few % lighter, and every ρx scales T as exp(−μ/ρ·ρx). The Moseley
 practice (P5) reads only the edge *position*, which does not depend on ρx.
 
-**Material plate readings (EPN Práctica 1, run 2a; added 2026-10-20).** At 30 kV the 0.4 mm plates transmit (open beam = 1, no
+**Material plate readings (EPN Práctica 1, run 2a; added 2026-10-20).** At 30 kV the 0.5 mm plates transmit (open beam = 1, no
 dead time or background):
 
 | Absorber | T | True rate at 0.02 mA (/s) | True rate at 1 mA (/s) | Rτ at 1 mA |
 |---|---|---|---|---|
-| Polystyrene | 0.98 | 3163 | 1.6e5 | 16 |
-| Al | 0.62 | 2006 | 1.0e5 | 10 |
-| Fe | 3.3e-3 | 10.7 | 533 | 0.05 |
-| Cu | 4.8e-4 | 1.6 | 78 | 0.008 |
-| Zr | 4.8e-3 | 15.6 | 782 | 0.08 |
-| Ag | 1.4e-3 | 4.4 | 218 | 0.02 |
+| Polystyrene | 0.97 | 3145 | 1.6e5 | 16 |
+| Al | 0.56 | 1798 | 9.0e4 | 9.0 |
+| Fe | 1.3e-3 | 4.1 | 205 | 0.02 |
+| Cu | 1.3e-4 | 0.42 | 21 | 0.002 |
+| Zr | 1.6e-3 | 5.3 | 264 | 0.03 |
+| Ag | 3.9e-4 | 1.3 | 64 | 0.006 |
 
-At the guide's 0.02 mA the four heavy plates would read only 8–80× the 0.2/s background, so the counting statistics and the background
-dominate. At 1 mA (the guide's setting for them) they read 80–780/s, and dead time is negligible. The light plates are the reverse:
+At the guide's 0.02 mA the four heavy plates would read only 2–22× the 0.24/s background, so the counting statistics and the background
+dominate. At 1 mA (the guide's setting for them) they read 21–264/s, and dead time is negligible. The light plates are the reverse:
 at 1 mA they would paralyse the GM, so the guide counts them at 0.02 mA. This is real, it is why the guide changes I between materials,
 and the app does not hide it (test `test_material_plate_needs_more_current_for_heavy_absorbers`). Zr transmits more than Fe: Mo Kα (17.5 keV) lies just below the Zr K edge (18.0 keV), in Zr's low-absorption window, and the 30 kV beam is rich there (Kα is ≈ 70 % of what passes the Zr plate), while Fe and Cu pass only the weak hard end of the continuum (23–29 keV). Kβ (19.6 keV) lies above the Zr edge and is absorbed. μ/ρ against Z is not monotonic across an edge.
 Dead time still enters the heavy plates' T through the open-beam reference (read at 0.02 mA, Rτ ≈ 0.32, 24 % loss) and must be corrected before the ×50 scaling (`analysis.scaled_transmission`); for Al and polystyrene it is the dominant systematic (Al −20 % uncorrected).
@@ -453,7 +453,7 @@ Added 2026-10-14. No measurement behind any of them.
 |---|---|---|
 | Direct-beam profile (`scan.direct_rate` `sensor_deg`) | Gaussian, width = `leak_width_deg` | Without a crystal the counter sees the beam's angular profile; its width is assumed equal to the fitted leak halo |
 | `WHEEL_WINDOW_DEG` | 3° | A 554 834 slot is in the beam within ±3° of its centre; between slots the frame blocks it (background only). Binary window, to be confirmed by the lab staff |
-| `Apparatus.saturated` threshold | Rτ = 0.3 | Dead-time losses exceed 23 % and the dead-time model choice starts to matter. The guide's own P1 run 2a polystyrene reading (30 kV, 0.02 mA, 0.4 mm; true ≈ 3160/s, Rτ ≈ 0.32, 24 % loss) trips the warning: kept as a teaching point, not hidden |
+| `Apparatus.saturated` threshold | Rτ = 0.3 | Dead-time losses exceed 23 % and the dead-time model choice starts to matter. The guide's own P1 run 2a polystyrene reading (30 kV, 0.02 mA, 0.5 mm; true ≈ 3145/s, Rτ ≈ 0.31, 24 % loss) trips the warning: kept as a teaching point, not hidden |
 
 ## Calibration-only (never used by the model)
 
@@ -516,5 +516,5 @@ What the model is trustworthy for, beyond the 35 kV, 1 mA, 2°–25° scan it wa
   fitted to orders 1–3, and no data beyond 25° test them.
 - **`direct_rate` while Rτ ≲ 0.3** (true rate ≲ 3000/s). Above that a real GM counter paralyses and reads far less
   than the non-paralyzable R/(1 + Rτ): the open beam at 30 kV, 1 mA (1.6e5/s true) would read 9418/s here. Even polystyrene
-  0.4 mm at 30 kV, 0.02 mA loses 24 % to dead time. `Apparatus.saturated` warns at such rates.
+  0.5 mm at 30 kV, 0.02 mA loses 24 % to dead time. `Apparatus.saturated` warns at such rates.
 - **Still unverified:** `LINE_EXPONENT_M` (only 35 kV data) and τ of the 559 01 counter.
