@@ -1,6 +1,8 @@
-// Assembly HUD (DOM only): the current step (sticky at the top), the parts tray (drag or tap), the zone list, the distance
-// inputs and the collapsible checklist. The 3D bench plugs into BenchAssemblyHooks: it assigns `resolveZone` and reads the
-// drag callbacks. Without a resolver a drop opens the zone list for that part, so the HUD works on its own (and in tests).
+// Assembly HUD (DOM only): a compact card with the current step and why, the distance inputs and the collapsible checklist.
+// The parts themselves lie on the table in the 3D bench and are dragged there; this file owns the drag lifecycle (threshold,
+// Escape, pointercancel, drop) and the keyboard path: a collapsed "Assemble without dragging" section with the part list and
+// the zone list (full keyboard / screen-reader operation). The 3D bench plugs into BenchAssemblyHooks: it assigns `resolveZone`,
+// calls `beginDrag` when a part is grabbed and reads the drag callbacks.
 //
 // Rendering is event driven (never per frame): the Assembly's onChange, a language switch (main.ts calls render()) and the
 // breakpoint change. The body is rebuilt only when its signature changes; between rebuilds only the live distance note
@@ -18,8 +20,6 @@ type Opts = {
   title: () => string
 }
 const DRAG_PX = 6
-const WIDE = matchMedia('(min-width: 1024px)') // as in app.css: side column vs bottom sheet
-const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches
 
 export function mountAssemblyHud(root: HTMLElement, hooks: BenchAssemblyHooks, opts: Opts) {
   root.innerHTML = '<div class="asm-body" data-asm-body></div><p class="visually-hidden" role="status" data-asm-live></p>'
@@ -28,14 +28,11 @@ export function mountAssemblyHud(root: HTMLElement, hooks: BenchAssemblyHooks, o
   let selected: Part | null = null
   let dismissed = false
   let sig = ''
-  let lastIdx = -1
   let unsub: (() => void) | null = null
-  let ghost: HTMLElement | null = null
-  let drag: { part: Part; id: number; x: number; y: number; on: boolean; from3d: boolean } | null = null
-  let escaped: number | null = null // pointer whose drag Escape cancelled: its release must not click the tray item
+  let drag: { part: Part; id: number; x: number; y: number; on: boolean } | null = null
   let gesture: { which: Distance; from: number; cancelled: boolean } | null = null // a slider drag in progress
   let listOpen = false // the student's choice for the checklist (collapsed by default: the current step is above it)
-  let swallowClick = false
+  let kbdOpen = false // the keyboard path stays folded until asked for
   const a = () => hooks.assembly
 
   const stepText = (s: Step) => {
@@ -43,7 +40,6 @@ export function mountAssemblyHud(root: HTMLElement, hooks: BenchAssemblyHooks, o
     const cm = s.distance ? String(s.distance.targetCm) : ''
     return { title: s_[0].replace('{cm}', cm), why: s_[1] }
   }
-  const partName = (p: Part) => at().parts[p]
 
   function report(r: PlaceResult, part: Part, zone: Zone) {
     const s = at()
@@ -89,7 +85,8 @@ export function mountAssemblyHud(root: HTMLElement, hooks: BenchAssemblyHooks, o
       })
       .join('')
     const nowStep = cur ? stepText(cur) : null
-    const now = nowStep ? `<p class="asm-now" tabindex="-1" data-now><strong>${nowStep.title}</strong><span class="asm-why">${nowStep.why}</span></p>` : ''
+    const hint = asm.index() === 0 ? `<span class="asm-hint">${s.dragHint}</span>` : ''
+    const now = nowStep ? `<p class="asm-now" tabindex="-1" data-now><strong>${nowStep.title}</strong><span class="asm-why">${nowStep.why}</span>${hint}</p>` : ''
     const list = `<details class="asm-list"${listOpen ? ' open' : ''}><summary data-focus-key="list">${s.checklist}</summary><ol class="asm-steps" aria-label="${s.stepsLabel}">${steps}</ol></details>`
     const dTitle = cur?.distance ? s.distTitle(cur.distance.which, exp) : ''
     const dist = cur?.distance
@@ -103,11 +100,9 @@ export function mountAssemblyHud(root: HTMLElement, hooks: BenchAssemblyHooks, o
         : ''
     const tray = trayParts()
       .map((p) => {
-        const chamber = asm.inChamber(p)
-        const state = chamber ? s.inChamber : asm.mounted(p) ? '✓ ' + s.onDevice : s.inTray
-        return `<li><button class="asm-part" data-part="${p}" data-focus-key="part:${p}" aria-pressed="${selected === p}" aria-describedby="asm-tray-hint"${chamber ? ' aria-disabled="true" data-chamber' : ''}${asm.mounted(p) ? ' data-on' : ''}>
-          <span class="asm-grip" aria-hidden="true" title="${s.gripLabel}">⋮⋮</span><span class="asm-part-name">${s.parts[p]}</span>
-          <span class="asm-part-state">${state}</span></button></li>`
+        const state = asm.mounted(p) ? '✓ ' + s.onDevice : s.inTray
+        return `<li><button class="asm-part" data-part="${p}" data-focus-key="part:${p}" aria-pressed="${selected === p}" aria-describedby="asm-tray-hint"${asm.mounted(p) ? ' data-on' : ''}>
+          <span class="asm-part-name">${s.parts[p]}</span><span class="asm-part-state">${state}</span></button></li>`
       })
       .join('')
     const zones = selected
@@ -117,6 +112,7 @@ export function mountAssemblyHud(root: HTMLElement, hooks: BenchAssemblyHooks, o
           <button class="asm-cancel" data-cancel>${s.cancel}</button></div>`
       : ''
     const trayBlock = `<div class="asm-tray-block" data-tray><h3>${s.trayTitle}</h3><p class="hint" id="asm-tray-hint">${s.trayHint}</p><ul class="asm-tray">${tray}</ul>${zones}</div>`
+    const kbd = `<details class="asm-kbd"${kbdOpen ? ' open' : ''}><summary data-focus-key="kbd">${s.kbdTitle}</summary>${trayBlock}</details>`
     const teacher = !done && opts.teacherShortcut() ? `<button class="about-link asm-teacher" data-teacher>${s.teacherAuto}</button>` : ''
     if (done) {
       return `<div class="asm-complete" tabindex="-1" data-complete><strong>✓ ${s.completeTitle}</strong><span>${s.completeText}${swaps ? ' ' + s.completeSwap : ''}</span>
@@ -124,7 +120,7 @@ export function mountAssemblyHud(root: HTMLElement, hooks: BenchAssemblyHooks, o
         ${swaps ? `<details class="asm-swap"><summary>${s.swapTitle}</summary>${trayBlock}</details>` : ''}`
     }
     return `<div class="asm-cur"><header class="asm-head"><h2>${escapeHtml(s.hudTitle(opts.title()))}</h2><span class="asm-count">${s.progress(asm.index(), asm.steps.length)}</span></header>
-      ${now}${dist}</div>${trayBlock}${list}${teacher}`
+      ${now}${dist}</div><div class="asm-more">${list}${kbd}</div>${teacher}`
   }
 
   function build() {
@@ -141,23 +137,9 @@ export function mountAssemblyHud(root: HTMLElement, hooks: BenchAssemblyHooks, o
       // student goes next (the part the step asks for), else the step heading.
       const same = key ? body.querySelector<HTMLElement>(`[data-focus-key="${key}"]`) : null
       const next = a().current()?.part
-      const target = same ?? (next ? body.querySelector<HTMLElement>(`[data-part="${next}"]:not([aria-disabled])`) : null) ?? body.querySelector<HTMLElement>('[data-now], [data-complete]')
+      const target = same ?? (next ? body.querySelector<HTMLElement>(`[data-part="${next}"]`) : null) ?? body.querySelector<HTMLElement>('[data-now], [data-complete]')
       target?.focus({ preventScroll: true })
     }
-    // Phone: the tray scrolls sideways; bring the part the new step asks for into view.
-    if (a().index() !== lastIdx && !WIDE.matches) {
-      const next = a().current()?.part
-      const btn = next ? body.querySelector<HTMLElement>(`[data-part="${next}"]`) : null
-      const tray = body.querySelector<HTMLElement>('.asm-tray')
-      if (btn && tray) {
-        // scroll the tray itself (scrollIntoView would also slide the whole sheet sideways)
-        const t = tray.getBoundingClientRect()
-        const r = btn.getBoundingClientRect()
-        const delta = r.left < t.left ? r.left - t.left : r.right > t.right ? r.right - t.right : 0
-        if (delta) tray.scrollBy({ left: delta, behavior: reduced() ? 'auto' : 'smooth' })
-      }
-    }
-    lastIdx = a().index()
   }
   const setText = (el: HTMLElement, text: string) => {
     if (el.textContent !== text) el.textContent = text
@@ -179,8 +161,8 @@ export function mountAssemblyHud(root: HTMLElement, hooks: BenchAssemblyHooks, o
   function signature(): string {
     const asm = a()
     let m = ''
-    for (const p of asm.parts()) m += asm.mounted(p) ? (asm.inChamber(p) ? '2' : '1') : asm.inChamber(p) ? '3' : '0'
-    return `${asm.experiment}|${asm.index()}|${selected}|${m}|${asm.done()}|${getLang()}|${WIDE.matches}|${listOpen}`
+    for (const p of asm.parts()) m += asm.mounted(p) ? '1' : '0'
+    return `${asm.experiment}|${asm.index()}|${selected}|${m}|${asm.done()}|${getLang()}|${listOpen}|${kbdOpen}`
   }
   function render() {
     const next = signature()
@@ -196,21 +178,17 @@ export function mountAssemblyHud(root: HTMLElement, hooks: BenchAssemblyHooks, o
     selected = null
     dismissed = false
     sig = ''
-    lastIdx = -1
     unsub = asm.onChange(render)
     render()
     hooks.onAssembly?.(asm)
   }
-  WIDE.addEventListener('change', () => ((sig = ''), render()))
 
   // ── Events: tap/Enter to select + zone list; distance inputs; teacher shortcut ──
   root.addEventListener('click', (e) => {
     const b = (e.target as HTMLElement).closest<HTMLElement>('button')
     if (!b) return
-    if (swallowClick) return void (swallowClick = false)
     if (b.closest('summary')) return
     if (b.dataset.part) {
-      if (b.hasAttribute('aria-disabled')) return opts.toast(at().inChamber)
       selected = selected === b.dataset.part ? null : (b.dataset.part as Part)
       sig = ''
       render()
@@ -228,6 +206,7 @@ export function mountAssemblyHud(root: HTMLElement, hooks: BenchAssemblyHooks, o
   root.addEventListener('toggle', (e) => {
     const d = e.target as HTMLDetailsElement
     if (d.classList.contains('asm-list') && d.open !== listOpen) ((listOpen = d.open), (sig = signature()))
+    else if (d.classList.contains('asm-kbd') && d.open !== kbdOpen) ((kbdOpen = d.open), (sig = signature()))
   }, true)
   // Distances: `input` is live (the note updates, nothing completes); `change` (release, Enter, blur) commits the step.
   const distOf = (el: HTMLInputElement): Distance | null => {
@@ -258,76 +237,45 @@ export function mountAssemblyHud(root: HTMLElement, hooks: BenchAssemblyHooks, o
     if (gesture) setTimeout(() => (gesture = null), 0)
   }
 
-  // ── Pointer drag from a tray item (mouse + touch): ghost chip, resolver, drop ──
-  // The HUD is the tray: a drop anywhere over it puts the part back (or leaves it there).
-  const overTray = (x: number, y: number): boolean => !!document.elementFromPoint(x, y)?.closest('[data-asm]')
-  const resolve = (x: number, y: number): Zone | null => (overTray(x, y) ? 'tray' : hooks.resolveZone?.(x, y) ?? null)
+  // ── Pointer drag of a part grabbed in 3D (mouse + touch): the bench starts it, the HUD owns threshold, resolver and drop ──
+  const resolve = (x: number, y: number): Zone | null => hooks.resolveZone?.(x, y) ?? null
   hooks.beginDrag = (part, e) => {
-    drag = { part, id: e.pointerId, x: e.clientX, y: e.clientY, on: false, from3d: true }
+    drag = { part, id: e.pointerId, x: e.clientX, y: e.clientY, on: false }
   }
-  root.addEventListener('pointerdown', (e) => {
-    const b = (e.target as HTMLElement).closest<HTMLElement>('[data-part]')
-    if (!b || b.hasAttribute('aria-disabled') || (e.pointerType === 'mouse' && e.button !== 0)) return
-    drag = { part: b.dataset.part as Part, id: e.pointerId, x: e.clientX, y: e.clientY, on: false, from3d: false }
-  })
   addEventListener('pointermove', (e) => {
     if (!drag || e.pointerId !== drag.id) return
     if (!drag.on) {
       if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < DRAG_PX) return
       drag.on = true
-      ghost = document.createElement('div')
-      ghost.className = 'asm-ghost'
-      ghost.setAttribute('aria-hidden', 'true')
-      ghost.textContent = partName(drag.part)
-      document.body.append(ghost)
       hooks.onDragStart?.(drag.part, a().zonesFor(drag.part))
     }
-    ghost!.style.transform = `translate(${e.clientX}px, ${e.clientY}px)`
     hooks.onDragMove?.(drag.part, e.clientX, e.clientY, resolve(e.clientX, e.clientY))
   })
   const end = (e: PointerEvent, cancelled: boolean) => {
     releaseGesture()
-    if (escaped === e.pointerId) {
-      escaped = null
-      swallowClick = true
-      setTimeout(() => (swallowClick = false), 0)
-    }
     if (!drag || e.pointerId !== drag.id) return
     const d = drag
     drag = null
-    if (!d.on) return // a plain tap: the click handler selects
-    swallowClick = true
-    setTimeout(() => (swallowClick = false), 0)
-    ghost?.remove()
-    ghost = null
+    if (!d.on) return // a plain tap on a part: nothing to do
     const zone = cancelled ? null : resolve(e.clientX, e.clientY)
-    if (zone === 'tray' && !d.from3d && !a().mounted(d.part) && !a().zonesFor(d.part).includes('tray')) {
-      // a tray item dropped back on the tray: nothing to do
-      hooks.onDragEnd?.(d.part, zone, null)
-      return
-    }
     let result: PlaceResult | null = null
-    if (zone) result = place(d.part, zone)
-    else if (!cancelled && !hooks.resolveZone) {
-      selected = d.part // no 3D resolver yet: continue with the zone list
-      sig = ''
-      render()
-    } else if (!cancelled && !d.from3d) opts.toast(at().trayHint)
+    // A part from the table dropped back on the table has nothing to do; one from the device dropped there is taken off.
+    if (zone === 'tray' && !a().mounted(d.part)) {
+      /* back on the table */
+    } else if (zone) result = place(d.part, zone)
+    else if (!cancelled) opts.toast(at().dropHint)
     hooks.onDragEnd?.(d.part, zone, result)
   }
   addEventListener('pointerup', (e) => end(e, false))
   addEventListener('pointercancel', (e) => end(e, true))
-  // Escape cancels a drag in progress (a tray item or a part grabbed in 3D) and a slider drag, restoring the value from before it.
+  // Escape cancels a drag in progress (a part grabbed in 3D) and a slider drag, restoring the value from before it.
   addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return
     if (drag?.on) {
       e.stopPropagation()
       e.preventDefault()
       const d = drag
-      escaped = d.id
       drag = null
-      ghost?.remove()
-      ghost = null
       hooks.onDragEnd?.(d.part, null, null)
     } else if (gesture && !gesture.cancelled) {
       e.stopPropagation()

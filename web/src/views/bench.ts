@@ -16,7 +16,8 @@ import { getMode } from '../pedagogy/mode'
 import { WHEELS_MG_CM2 } from '../physics/tables'
 import { armEaser, dpr, palette, paletteVersion, reducedMotion, type Palette } from './canvas'
 import { at } from './assembly-i18n'
-import { fitDistance, freeArea, hitSizeCm, pxPerCm, s1FromRay, s2FromRay, type Reserve } from './bench-assembly-geometry'
+import { fitPoints, freeArea, hitSizeCm, pxPerCm, s1FromRay, s2FromRay, type Reserve, type V3 } from './bench-assembly-geometry'
+import { tableLayout, tableRect, tableSpots } from './bench-table-layout'
 import { PLATE_R_CM, S1_CM } from './goniometer'
 import { GROUPS, keySelected } from './panel'
 
@@ -108,7 +109,7 @@ export function mountBench(
 
   // Table with a soft contact shadow under each object.
   const table = matte('bench-table', { roughness: 0.9 })
-  scene.add(box(210, 3, 95, table, 18, -1.5, 5))
+  scene.add(box(210, 3, 105, table, 18, -1.5, 10))
   for (const [x, z] of [[-82, -38], [118, -38], [-82, 48], [118, 48]]) scene.add(box(4, 70, 4, table, x, -38, z))
   const shade = document.createElement('canvas')
   shade.width = shade.height = 64
@@ -133,7 +134,8 @@ export function mountBench(
     dev.add(box(4, 1.5, 4, trim, x, 0.75, z))
   }
   dev.add(box(W, FLOOR - 1.5, D, housing, 0, (FLOOR + 1.5) / 2, 0))
-  dev.add(box(W, H - CEIL, D, housing, 0, (H + CEIL) / 2, 0))
+  const roof = box(W, H - CEIL, D, housing, 0, (H + CEIL) / 2, 0) // cut away while assembling: the camera looks down into the chamber
+  dev.add(roof)
   dev.add(box(W, CEIL - FLOOR, 1, housing, 0, (CEIL + FLOOR) / 2, -D / 2 + 0.5))
   dev.add(box(COL_X + W / 2, CEIL - FLOOR, D, housing, (COL_X - W / 2) / 2, (CEIL + FLOOR) / 2, 0))
   dev.add(box(1, CEIL - FLOOR, D, housing, W / 2 - 0.5, (CEIL + FLOOR) / 2, 0))
@@ -285,12 +287,6 @@ export function mountBench(
   sensorArm.add(armBar, counterW)
   gonio.add(targetArm, sensorArm)
   pick(gonio, 'chamber')
-
-  // The counter before it is mounted lies in the chamber, cap on (the guide's first counter steps).
-  const cL = makeCounter()
-  cL.g.position.set(24, FLOOR + 1.1, 9)
-  cL.g.rotation.y = -0.35
-  dev.add(cL.g)
 
   // Collimator: sits in a groove in the chamber wall (the dark ring stays), shown only once mounted.
   const grooveRing = cyl(1.4, 0.2, matte('bench-ink'), 'x', 24)
@@ -573,14 +569,26 @@ export function mountBench(
       monitorNormal.clone().setY(0.08), MONITOR.w, MONITOR.h, 1.1,
     )
     presets.chamber = frame(new THREE.Vector3(AXIS_C + 3, BEAM_Y + 3, 0), new THREE.Vector3(0, 0.12, 1), 32, 30, 1.1)
-    // Assembly: the whole open chamber (floor to the sensor arm's top, wall to screen), centred in what the HUD leaves free.
+    // Assembly: the whole open chamber AND the workbench in front of it, from the front and a little above, centred in what the
+    // HUD leaves free. The view is fitted to the projected corners of both, so nothing needs orbiting.
     const r = env.reserve()
     const fa = freeArea(vw, vh, r)
-    const target = new THREE.Vector3(17.5, 20.5, 0)
-    const d = fitDistance(34, 34, camera.fov, camera.aspect, fa.fw, fa.fh, 1.06)
-    presets.assembly = { target, pos: target.clone().addScaledVector(new THREE.Vector3(0, 0.1, 1).normalize(), d), dx: fa.dx, dy: fa.dy }
+    tableCfg = tableLayout((fa.fw * vw) / (fa.fh * vh) < 0.9)
+    const rows = Math.ceil(partsOnTable().length / tableCfg.cols)
+    const tx = (tableCfg.cols * tableCfg.dx) / 2 + 3
+    const zMax = tableCfg.z0 + (rows - 1) * tableCfg.dz + 7 // the last row's labels
+    const cx = tableCfg.cx
+    const pts: V3[] = []
+    for (const x of [1, 34]) for (const y of [FLOOR, CEIL]) for (const z of [-D / 2, D / 2]) pts.push({ x, y, z })
+    for (const x of [cx - tx, cx + tx]) for (const z of [D / 2, zMax]) pts.push({ x, y: 0, z })
+    const target = new THREE.Vector3(cx, 17, (zMax - D / 2) / 2)
+    const dir = new THREE.Vector3(0, tableCfg.elev, 1).normalize()
+    const d = fitPoints(pts, target, dir, camera.fov, camera.aspect, fa.fw, fa.fh, 1.05)
+    presets.assembly = { target, pos: target.clone().addScaledVector(dir, d), dx: fa.dx, dy: fa.dy }
     reserveSig = `${r.left}|${r.right}|${r.top}|${r.bottom}`
     hitMinCm = hitSizeCm(0, pxPerCm(vh, camera.fov, d), 48)
+    relayoutTable()
+    tagBox.style.setProperty('--tag-w', `${Math.round(tableCfg.dx * pxPerCm(vh, camera.fov, d) * 0.92)}px`)
     sizeHits()
     const room = presets.room.pos.distanceTo(presets.room.target)
     controls.minDistance = 0.45 * room
@@ -612,6 +620,7 @@ export function mountBench(
     // Seen from the front the open door and the frame above it would cover the chamber (its sliding door only half clears
     // the opening): they step aside for these two framings.
     topFrame.visible = door.visible = !(v === 'chamber' || v === 'assembly')
+    roof.visible = v !== 'assembly'
     if (!presets[v]) return // before the first layout, which then places the camera
     controls.enabled = false
     const ms = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--dur-camera')) || 0
@@ -659,7 +668,7 @@ export function mountBench(
   }
 
   // ── Assembly in 3D: drop zones, ghosts, grabbing parts and distances ───────────────────────────────
-  type HitTag = { zone?: Zone; part?: () => Part | null; dist?: Distance; on?: () => boolean }
+  type HitTag = { zone?: Zone; part?: () => Part | null; dist?: Distance; on?: () => boolean; table?: boolean }
   const A = () => hooks.assembly
   const hitMat = new THREE.MeshBasicMaterial({ visible: false }) // raycastable, never drawn
   const unit = new THREE.BoxGeometry(1, 1, 1)
@@ -677,6 +686,10 @@ export function mountBench(
   const sizeHits = () => {
     for (const m of [...zoneHits, ...grabHits]) {
       const b = m.userData.base as [number, number, number]
+      if (m.userData.flat) {
+        m.scale.set(b[0], b[1], b[2]) // the table zone is as big as the table, not finger-sized
+        continue
+      }
       m.scale.set(Math.max(b[0], hitMinCm), Math.max(b[1], hitMinCm), Math.max(b[2], hitMinCm))
     }
   }
@@ -684,8 +697,9 @@ export function mountBench(
   // Ghosts: an accent-coloured translucent box with outline, child of its hit volume (same place and size).
   const ghosts = new Map<Zone, { g: THREE.Group; fill: THREE.MeshBasicMaterial; hit: THREE.Mesh }>()
   const edgesGeo = new THREE.EdgesGeometry(unit)
-  const zoneHit = (zone: Zone, parent: THREE.Object3D, base: [number, number, number], pos: [number, number, number], on: () => boolean) => {
+  const zoneHit = (zone: Zone, parent: THREE.Object3D, base: [number, number, number], pos: [number, number, number], on: () => boolean, flat = false) => {
     const h = hitBox(zoneHits, parent, base, pos, { zone, on: () => on() && zonesNow().includes(zone) })
+    if (flat) h.userData.flat = true
     const fill = glow('accent', { opacity: 0 })
     fill.depthTest = false
     const edge = new THREE.LineBasicMaterial({ transparent: true, depthTest: false, opacity: 0.9 })
@@ -699,6 +713,7 @@ export function mountBench(
     g.visible = false
     h.add(g)
     ghosts.set(zone, { g, fill, hit: h })
+    return h
   }
   zoneHit('collimatorMount', dev, [6, 5, 5], [WALL_X + 3, BEAM_Y, 0], () => !A().mounted('collimator'))
   zoneHit('guideRods', dev, [14, 16, 6], [axisX(), BEAM_Y, BACK_Z], () => !A().mounted('goniometer'))
@@ -707,10 +722,9 @@ export function mountBench(
   zoneHit('sensorSeat', sensorArm, [9, 4, 4], [s2Len() + 4, 0, 0], () => true)
   zoneHit('targetHolder', targetArm, [5, 5, 5], [0, -0.25, 0], () => true)
   zoneHit('collimatorTip', dev, [3, 4, 4], [SLIT_X + 0.5, BEAM_Y, 0], () => true)
-  // Grab volumes: parts on the device that can be dragged out (back to the tray), and the two distance handles.
-  const capPart = (): Part => 'counterCap'
-  hitBox(grabHits, cM.cap, [2.5, 3, 3], [0, 0, 0], { part: capPart })
-  hitBox(grabHits, cL.cap, [2.5, 3, 3], [0, 0, 0], { part: capPart })
+  // The table in front of the apparatus is one big drop zone ("off the apparatus"); its extent follows the layout (relayoutTable).
+  const trayHit = zoneHit('tray', scene, [70, 0.4, 30], [17.5, 0.2, 40], () => assemblyView(), true)
+  // Grab volumes: parts on the device that can be dragged out (back to the table), and the two distance handles.
   hitBox(grabHits, cM.body, [8, 3, 3], [0, 0, 0], { part: () => 'counter', dist: 's2' })
   hitBox(grabHits, stageTable, [5, 3, 5], [0, 0, 0], { part: () => 'targetStage' })
   hitBox(grabHits, collFoil, [3, 4, 4], [0, 0, 0], { part: () => 'zrFilter' })
@@ -806,6 +820,143 @@ export function mountBench(
     al: matte('bench-metal', { roughness: 0.4, metalness: 0.6, side: THREE.DoubleSide }), // set I: aluminium grey
     mixed: SLOT_COLOURS.map((c) => matte(c, { roughness: 0.5, side: THREE.DoubleSide })), // set II: one colour per material
   }
+
+  // ── The workbench: every part of the experiment lies on the table in front of the apparatus at its fixed home spot, with a
+  // small label. The student grabs one there and drops it on a lit zone; a part taken off the device returns to its spot.
+  type Prop = {
+    part: Part; g: THREE.Group; rest: number; home: THREE.Vector3; from: THREE.Vector3; t0: number; tag: HTMLElement
+    front: number; hit: THREE.Mesh; tx: number; ty: number
+  }
+  const props = new Map<Part, Prop>()
+  const propRoot = new THREE.Group()
+  scene.add(propRoot)
+  const tagBox = document.createElement('div')
+  tagBox.className = 'bench-tags'
+  tagBox.setAttribute('aria-hidden', 'true')
+  canvas.parentElement?.append(tagBox)
+  const mkProp = (part: Part, rest: number, front: number, hitBase: [number, number, number], build: (g: THREE.Group) => void) => {
+    const g = new THREE.Group()
+    build(g)
+    g.visible = false
+    propRoot.add(g)
+    const tag = document.createElement('span')
+    tag.className = 'bench-tag'
+    tag.hidden = true
+    tagBox.append(tag)
+    const hit = hitBox(grabHits, g, hitBase, [0, 0, 0], { part: () => part, on: () => carry?.part !== part })
+    hit.userData.hit.table = true
+    const pr: Prop = { part, g, rest, home: new THREE.Vector3(0, rest, 0), from: new THREE.Vector3(), t0: 0, tag, front, hit, tx: NaN, ty: NaN }
+    props.set(part, pr)
+    return pr
+  }
+  const at3 = <T extends THREE.Object3D>(o: T, x: number, y: number, z: number) => (o.position.set(x, y, z), o)
+  const ringOf = (mats: THREE.Material[]) => {
+    const ring = new THREE.Group()
+    const n = mats.length
+    for (let k = 0; k < n; k++) {
+      const seg = new THREE.Mesh(new THREE.CylinderGeometry(PLATE_R_CM, PLATE_R_CM, 2.5, 8, 1, true, (k * 2 * Math.PI) / n, (2 * Math.PI) / n - 0.12), mats[k])
+      seg.rotation.x = Math.PI / 2
+      ring.add(seg)
+    }
+    return ring
+  }
+  const stand = (w: number, d: number, y: number) => at3(box(w, 0.4, d, trim, 0, 0, 0), 0, y, 0)
+  mkProp('collimator', 1.5, 2.5, [10, 3, 3], (g) => {
+    g.add(cyl(1, 9, metal, 'x', 24), at3(cyl(1.5, 0.8, metal, 'x', 24), -3, 0, 0))
+  })
+  mkProp('goniometer', 3.5, 3.5, [8, 7, 4], (g) => {
+    g.add(cyl(3.5, 1, metal, 'z', 40), at3(box(1.6, 7, 0.9, metal, 0, 0, 0), 0, 0, 0.9), at3(cyl(0.5, 3, metal, 'z', 12), 0, 0, -1.8), stand(6, 4, -3.3))
+  })
+  mkProp('ribbonCable', 0.3, 2.6, [8, 1, 5], (g) => {
+    g.add(box(7, 0.2, 1.6, ribbonMat, 0, 0, -0.9), box(7, 0.2, 1.6, ribbonMat, 0, 0, 0.9), box(1.6, 0.2, 3.4, ribbonMat, 3.5, 0, 0), box(1, 0.5, 1.6, trim, -3.5, 0.15, -0.9), box(1, 0.5, 1.6, trim, -3.5, 0.15, 0.9))
+  })
+  const counterProp = mkProp('counter', 1.1, 2, [9, 3, 3], (g) => {
+    const c = makeCounter()
+    c.g.position.x = -3 // centred on its body
+    g.add(c.g)
+    g.userData.cap = c.cap
+  })
+  const capHit = hitBox(grabHits, counterProp.g, [3, 3, 3], [-3.6, 0, 0], { part: () => 'counterCap', on: () => A().mounted('counterCap') && carry?.part !== 'counterCap' })
+  capHit.userData.hit.table = true
+  mkProp('counterCap', 1.3, 1.8, [3, 3, 3], (g) => g.add(cyl(1.3, 1.2, capMat, 'x', 24)))
+  mkProp('counterCable', 0.3, 3, [6, 1.5, 6], (g) => {
+    const loop = new THREE.Mesh(new THREE.TorusGeometry(2.4, 0.28, 8, 28), cableMat)
+    loop.rotation.x = Math.PI / 2
+    g.add(loop, box(1.6, 0.8, 0.8, metal, 2.9, 0, 0.9), box(1.6, 0.8, 0.8, metal, 2.9, 0, -0.9))
+  })
+  mkProp('targetStage', 0.25, 2.5, [5, 1, 5], (g) => g.add(box(4.4, 0.5, 4.4, matte('bench-trim'), 0, 0, 0), box(1, 0.6, 1, metal, 1.4, 0.3, 1.4)))
+  mkProp('naclCrystal', 1, 1.5, [3, 3, 3], (g) => g.add(box(2, 2, 2, matte('phys-crystal', { roughness: 0.3 }), 0, 0, 0)))
+  mkProp('absorbersI', 2.7, 2.5, [5, 5, 4], (g) => g.add(ringOf([plateMats.al, plateMats.al, plateMats.al, plateMats.al, plateMats.al, plateMats.al, plateMats.al, plateMats.al]), stand(4, 3, -2.5)))
+  mkProp('absorbersII', 2.7, 2.5, [5, 5, 4], (g) => g.add(ringOf(plateMats.mixed.slice(0, 7)), stand(4, 3, -2.5)))
+  mkProp('zrFilter', 1.8, 2.2, [4, 4, 3], (g) => {
+    g.add(box(3.2, 3.2, 0.4, trim, 0, 0, 0), at3(cyl(1, 0.5, metal, 'z', 24), 0, 0, 0.1), stand(2.5, 1.5, -1.8))
+  })
+  /** The parts that lie on the table in this experiment (the order of the layout). */
+  function partsOnTable(): readonly Part[] {
+    return A().parts()
+  }
+  let tableCfg = tableLayout(false)
+  const tableShown = (): boolean => assemblyView()
+  function relayoutTable() {
+    const parts = partsOnTable()
+    const spots = tableSpots(parts, tableCfg)
+    for (const p of parts) {
+      const pr = props.get(p)!
+      const sp = spots[p]!
+      pr.home.set(sp.x, pr.rest, sp.z)
+      if (pr.t0 === 0 && carry?.part !== p) pr.g.position.copy(pr.home)
+    }
+    const rc = tableRect(parts.length, tableCfg)
+    trayHit.userData.base = [rc.w, 0.4, rc.d]
+    trayHit.position.set(rc.cx, 0.2, rc.cz)
+    applyProps()
+    dirty = true
+  }
+  let tagLang = ''
+  function applyProps() {
+    const As = A()
+    const on = tableShown()
+    const inExp = partsOnTable()
+    for (const pr of props.values()) {
+      const shown = on && inExp.includes(pr.part) && (!As.mounted(pr.part) || carry?.part === pr.part)
+      if (pr.g.visible !== shown) pr.g.visible = shown
+      const tagOn = shown && carry?.part !== pr.part
+      if (pr.tag.hidden === tagOn) pr.tag.hidden = !tagOn
+    }
+    const cap = counterProp.g.userData.cap as THREE.Object3D
+    cap.visible = As.mounted('counterCap') && carry?.part !== 'counterCap'
+    dirty = true
+  }
+  const FLY_MS = 320
+  const stepProps = (now: number) => {
+    for (const pr of props.values()) {
+      if (pr.t0 === 0) continue
+      const x = reducedMotion() ? 1 : Math.min(1, (now - pr.t0) / FLY_MS)
+      pr.g.position.lerpVectors(pr.from, pr.home, ease(x))
+      dirty = true
+      if (x === 1) pr.t0 = 0
+    }
+  }
+  const tagV = new THREE.Vector3()
+  /** Labels follow their parts on screen: written only after a frame was drawn, and only when the position moved. */
+  const placeTags = () => {
+    const lang = getLang()
+    const relabel = lang !== tagLang
+    tagLang = lang
+    for (const pr of props.values()) {
+      if (relabel) pr.tag.textContent = at().partsShort[pr.part]
+      if (pr.tag.hidden) continue
+      tagV.set(pr.home.x, 0, pr.home.z + pr.front)
+      tagV.project(camera)
+      const x = Math.round(((tagV.x + 1) / 2) * vw)
+      const y = Math.round(((1 - tagV.y) / 2) * vh)
+      if (x !== pr.tx || y !== pr.ty) {
+        pr.tx = x
+        pr.ty = y
+        pr.tag.style.transform = `translate(${x}px, ${y}px)`
+      }
+    }
+  }
   let builtHolder = ''
   const buildHolder = (holder: Setup['holder']) => {
     const key = `${holder}|${WHEELS_MG_CM2.al.length}|${WHEELS_MG_CM2.material.length}`
@@ -830,6 +981,7 @@ export function mountBench(
   let lastSetup: Setup | null = null
   let lastDone = false
   let asmDirty = true
+  let lastTable = false
   const applyVisibility = () => {
     const As = A()
     const assembling = !As.done()
@@ -838,8 +990,6 @@ export function mountBench(
     ribbonW.visible = As.mounted('ribbonCable')
     counterW.visible = As.mounted('counter')
     cM.cap.visible = As.mounted('counterCap')
-    cL.g.visible = assembling && As.inChamber('counter') // lies on the floor during the cap step only; then it is a tray part
-    cL.cap.visible = As.mounted('counterCap')
     cableW.visible = As.mounted('counterCable')
     stageW.visible = As.mounted('targetStage')
     const s_ = a.setup
@@ -854,6 +1004,7 @@ export function mountBench(
     lastSetup = s_
     lastDone = !assembling
     asmDirty = false
+    applyProps()
     dirty = true
   }
   applyDist()
@@ -895,10 +1046,16 @@ export function mountBench(
     noteMounted(false)
     asmDirty = true
     applyDist()
+    relayoutTable()
     go(effective())
   }
 
-  // ── Drag lifecycle (the HUD owns the ghost chip and the thresholds; we draw zones and resolve drops)
+  // ── Drag lifecycle (the HUD owns thresholds, Escape and the drop; we draw the carried part and the zones, and resolve drops)
+  let carry: { part: Part } | null = null
+  const carryPlane = new THREE.Plane()
+  const carryN = new THREE.Vector3()
+  const carryPt = new THREE.Vector3()
+  const grabPt = new THREE.Vector3() // where the pointer met the part (world)
   const valid = new Set<Zone>()
   let hot: Zone | null = null
   let shake: { zone: Zone; t: number } | null = null
@@ -940,16 +1097,32 @@ export function mountBench(
     }
     return best
   }
-  hooks.onDragStart = (_part, zones) => {
+  hooks.onDragStart = (part, zones) => {
     dragActive = true
     controls.enabled = false
     valid.clear()
     for (const z of zones) valid.add(z)
     shake = null
     canvas.toggleAttribute('data-grabbing', true)
+    // The part (a copy of it, when it comes off the device) follows the pointer on the plane facing the camera through the grab point.
+    carry = { part }
+    const pr = props.get(part)
+    if (pr) {
+      pr.t0 = 0
+      if (A().mounted(part) && !pr.g.visible) pr.g.position.copy(grabPt)
+      camera.getWorldDirection(carryN)
+      carryPlane.setFromNormalAndCoplanarPoint(carryN, pr.g.position)
+      applyProps()
+    }
     dirty = true
   }
-  hooks.onDragMove = (_part, _x, _y, over) => {
+  hooks.onDragMove = (part, x, y, over) => {
+    const pr = carry && props.get(part)
+    if (pr) {
+      aim({ clientX: x, clientY: y })
+      if (ray.ray.intersectPlane(carryPlane, carryPt)) pr.g.position.copy(carryPt)
+      dirty = true
+    }
     const next = over && valid.has(over) && ghosts.has(over) ? over : null
     if (next !== hot) {
       hot = next
@@ -961,13 +1134,25 @@ export function mountBench(
       } else if (tipOwner === 'zone') hideTip()
     }
   }
-  hooks.onDragEnd = (_part, dropped, result) => {
+  hooks.onDragEnd = (part, dropped, result) => {
     dragActive = false
     valid.clear()
     hot = null
     canvas.removeAttribute('data-grabbing')
     if (tipOwner === 'zone') hideTip()
     if (result && !result.ok && dropped && ghosts.has(dropped)) shake = { zone: dropped, t: 0.4 } // a refusal: the zone shakes, the toast says why
+    const pr = props.get(part)
+    carry = null
+    if (pr) {
+      // Back on the table (taken off the device, refused or cancelled): it flies to its home spot. A part now on the device
+      // just disappears from the table; the device part snaps in.
+      if (!A().mounted(part)) {
+        pr.from.copy(pr.g.position)
+        pr.t0 = performance.now()
+      }
+      asmDirty = true
+      applyProps()
+    }
     restoreControls()
     dirty = true
   }
@@ -999,12 +1184,29 @@ export function mountBench(
       : s2FromRay(ray.ray.origin, ray.ray.direction, 0, { x: axisX(), y: BEAM_Y }, sensorArm.rotation.z, off + refCm())
   const grabAt = (e: PointerEvent) => {
     aim(e)
-    for (const h of ray.intersectObjects(grabHits, false)) {
+    const hits = ray.intersectObjects(grabHits, false)
+    // Parts on the table: any of them can be picked up (a wrong part is refused with a reason on the drop); the centre nearest to
+    // the ray wins where two volumes overlap (the cap on the counter).
+    let best: THREE.Object3D | null = null
+    let bestD = Infinity
+    for (const h of hits) {
+      const tag = h.object.userData.hit as HitTag
+      if (!tag.table || !usable(h.object)) continue
+      h.object.getWorldPosition(zoneWorld)
+      const d = ray.ray.distanceToPoint(zoneWorld)
+      if (d < bestD) ((bestD = d), (best = h.object))
+    }
+    if (best) {
+      const part = ((best as THREE.Object3D).userData.hit as HitTag).part?.() ?? null
+      if (part) return { part, which: null, pt: (best as THREE.Object3D).getWorldPosition(grabPt) }
+    }
+    for (const h of hits) {
       if (!usable(h.object)) continue
       const tag = h.object.userData.hit as HitTag
+      if (tag.table) continue
       const part = tag.part?.() ?? null
-      if (part && A().zonesFor(part).length) return { part, which: null }
-      if (tag.dist && A().current()?.distance?.which === tag.dist) return { part: null, which: tag.dist } // only the current step's distance; locked afterwards
+      if (part && A().zonesFor(part).length) return { part, which: null, pt: h.object.getWorldPosition(grabPt) }
+      if (tag.dist && A().current()?.distance?.which === tag.dist) return { part: null, which: tag.dist, pt: null } // only the current step's distance; locked afterwards
     }
     return null
   }
@@ -1149,6 +1351,9 @@ export function mountBench(
     sensorArm.rotation.z = (arms.s / 10) * RAD
     const changed = a.setup !== lastSetup || asmDirty || A().done() !== lastDone
     if (changed) applyVisibility()
+    else if (tableShown() !== lastTable) applyProps()
+    lastTable = tableShown()
+    stepProps(performance.now())
     stepSnaps(performance.now())
     stepGhosts(dtS, performance.now())
     const showDims = assemblyView() && !A().done()
@@ -1203,6 +1408,7 @@ export function mountBench(
     Object.assign(drawn, { t: arms.t, s: arms.s, door: door.position.x, g, rate, emitting, knob: knob.rotation.z, mode, off: offX })
     dirty = false
     renderer.render(scene, camera)
+    placeTags()
   }
 
   return {
@@ -1220,12 +1426,21 @@ export function mountBench(
       const zones: Record<string, { x: number; y: number }> = {}
       for (const m of zoneHits) if (usable(m)) zones[(m.userData.hit as HitTag).zone!] = at_(m)
       const grabs: Record<string, { x: number; y: number }> = {}
+      const parts: Record<string, { x: number; y: number }> = {}
       grabHits.forEach((m, i) => {
         if (!usable(m)) return
         const tag = m.userData.hit as HitTag
+        if (tag.table) {
+          parts[tag.part!()!] = at_(m)
+          return
+        }
         grabs[`${tag.dist ?? tag.part?.() ?? 'x'}${i}`] = at_(m)
       })
-      return { zones, grabs, view: cur }
+      // a free spot of the table (drop point for taking a part off the device)
+      const rc = tableRect(partsOnTable().length, tableCfg)
+      v.set(rc.cx, 0, rc.cz).project(camera)
+      const table = { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height }
+      return { zones, grabs, parts, table, view: cur }
     },
     /** The door refused to open (interlock): a short shake. */
     shake: () => {

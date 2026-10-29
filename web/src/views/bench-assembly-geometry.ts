@@ -55,3 +55,29 @@ export function fitDistance(wCm: number, hCm: number, fovDeg: number, aspect: nu
   const ht = vt * aspect
   return margin * Math.max(wCm / fw / 2 / ht, hCm / fh / 2 / vt)
 }
+
+/** Camera distance from `target` along the unit-ish direction `dir` (target -> camera) so that every point of `pts` lands inside the
+ * free fraction (fw, fh) of the viewport, times `margin`. The camera looks at `target` with +y up. */
+export function fitPoints(pts: readonly V3[], target: V3, dir: V3, fovDeg: number, aspect: number, fw: number, fh: number, margin: number): number {
+  const n = Math.hypot(dir.x, dir.y, dir.z) || 1
+  const w = { x: dir.x / n, y: dir.y / n, z: dir.z / n } // camera axis, pointing at the camera
+  let rx = w.z // right = up x w
+  let rz = -w.x
+  const rn = Math.hypot(rx, rz) || 1
+  rx /= rn
+  rz /= rn
+  const r = { x: rx, y: 0, z: rz }
+  const u = { x: w.y * r.z, y: w.z * r.x - w.x * r.z, z: -w.y * r.x } // screen up = w x r
+  const un = Math.hypot(u.x, u.y, u.z) || 1
+  const vt = Math.tan((fovDeg * Math.PI) / 360)
+  const ht = vt * aspect
+  let need = 0
+  for (const p of pts) {
+    const d = { x: p.x - target.x, y: p.y - target.y, z: p.z - target.z }
+    const depth = d.x * w.x + d.y * w.y + d.z * w.z // towards the camera: the point is that much closer
+    const px = Math.abs(d.x * r.x + d.y * r.y + d.z * r.z)
+    const py = Math.abs(d.x * u.x + d.y * u.y + d.z * u.z) / un
+    need = Math.max(need, depth + px / (fw * ht), depth + py / (fh * vt))
+  }
+  return margin * need
+}
