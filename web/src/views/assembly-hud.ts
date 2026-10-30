@@ -20,6 +20,7 @@ type Opts = {
   title: () => string
 }
 const DRAG_PX = 6
+const COMPLETE_MS = 2500 // the "assembly complete" card leaves after the usual toast time
 
 export function mountAssemblyHud(root: HTMLElement, hooks: BenchAssemblyHooks, opts: Opts) {
   root.innerHTML = '<div class="asm-body" data-asm-body></div><p class="visually-hidden" role="status" data-asm-live></p>'
@@ -27,6 +28,7 @@ export function mountAssemblyHud(root: HTMLElement, hooks: BenchAssemblyHooks, o
   const live = root.querySelector<HTMLElement>('[data-asm-live]')!
   let selected: Part | null = null
   let dismissed = false
+  let completeTimer: ReturnType<typeof setTimeout> | undefined
   let sig = ''
   let unsub: (() => void) | null = null
   let drag: { part: Part; id: number; x: number; y: number; on: boolean } | null = null
@@ -167,9 +169,21 @@ export function mountAssemblyHud(root: HTMLElement, hooks: BenchAssemblyHooks, o
   function render() {
     const next = signature()
     if (next !== sig) {
+      const prevSig = sig
       sig = next
       if (!a().done()) dismissed = false
+      const wasDone = prevSig.includes('|true|')
       build()
+      if (!a().done()) clearTimeout(completeTimer)
+      // a card holding the accessory-swap tray stays: the student needs it later with the door open
+      if (a().done() && !dismissed && !wasDone && !body.querySelector('.asm-swap')) {
+        const asm = a()
+        completeTimer = setTimeout(() => {
+          if (a() !== asm || !asm.done()) return
+          dismissed = true
+          root.hidden = true
+        }, COMPLETE_MS)
+      }
     } else syncDistance()
   }
   function attach(asm: Assembly) {

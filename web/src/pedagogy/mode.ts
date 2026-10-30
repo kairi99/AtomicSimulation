@@ -2,20 +2,14 @@
 // only what the real bench shows: the panel, the arms and the raw counts.
 export type AppMode = 'explore' | 'lab'
 
-// Storage can throw (blocked cookies, sandboxed LMS iframes): the mode then just isn't remembered.
-let mode: AppMode = 'explore'
-try {
-  if (localStorage.getItem('mode') === 'lab') mode = 'lab'
-} catch {}
+// Every page load starts in Lab (the stored mode is ignored): Explore is earned by finishing the lab tasks.
+let mode: AppMode = 'lab'
 
 export function getMode(): AppMode {
   return mode
 }
 export function setMode(m: AppMode): void {
   mode = m
-  try {
-    localStorage.setItem('mode', m)
-  } catch {}
   document.documentElement.dataset.mode = m
 }
 

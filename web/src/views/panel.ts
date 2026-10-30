@@ -82,7 +82,10 @@ export function mountPanel(root: HTMLElement, a: Apparatus, onDetent: () => void
     for (; grab.acc >= DETENT_DEG; grab.acc -= DETENT_DEG) turn(1, false)
     for (; grab.acc <= -DETENT_DEG; grab.acc += DETENT_DEG) turn(-1, false)
   })
-  for (const ev of ['pointerup', 'pointercancel', 'pointerleave', 'blur'] as const) root.addEventListener(ev, release, true)
+  for (const ev of ['pointerup', 'pointercancel', 'pointerleave'] as const) root.addEventListener(ev, release, true)
+  // Not the element blur: pressing a key moves focus off the previous key, which would kill the repeat at once.
+  window.addEventListener('blur', release)
+  document.addEventListener('visibilitychange', release)
   for (const ev of ['pointerup', 'pointercancel'] as const) root.addEventListener(ev, () => (grab = null), true)
   let wheel = 0
   root.addEventListener(

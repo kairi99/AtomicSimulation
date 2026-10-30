@@ -5,7 +5,7 @@ import './styles/app.css'
 import { Apparatus } from './apparatus/apparatus'
 import { Assembly, ZERO_STEP, sameSetup, type BenchAssemblyHooks, type Experiment } from './apparatus/assembly'
 import { getLang, setLang, t, type Lang } from './i18n'
-import { mountLearn, pt } from './pedagogy/card'
+import { exploreLock, mountLearn, pt } from './pedagogy/card'
 import { mountExplore } from './pedagogy/explore'
 import { getExperiment, hasRememberedExperiment, markAssembled, setExperiment, wasAssembled } from './pedagogy/experiment'
 import { getMode, setMode } from './pedagogy/mode'
@@ -137,6 +137,10 @@ const explore = mountExplore(q('[data-explore]'), apparatus)
 const setup = mountSetup(q<HTMLDetailsElement>('[data-setup]'), apparatus)
 const learn = mountLearn(q('[data-learn-body]'), apparatus, {
   onMode: applyMode,
+  onUnlock: () => {
+    showToast(pt().exploreUnlocked)
+    learn.build()
+  },
   ready,
   notReadyHint: () => at().gateTasks,
   onFocus: (keys) => {
@@ -370,6 +374,10 @@ function chooseExperiment(exp: Experiment) {
   if (exp === 'attenuation') void loadAbsorbers().catch(() => {}) // the wheels and the Zr foil need the tables
   setFocus('room')
   learn.reset()
+  if (getMode() === 'explore' && exploreLock().locked) {
+    setMode('lab') // the other experiment's lab tasks are not done yet
+    applyMode()
+  }
   const A = new Assembly(exp)
   A.onChange(syncApparatus)
   A.onChange(gate)
@@ -460,6 +468,7 @@ if (new URLSearchParams(location.search).has('forge')) {
     history.replaceState(history.state, '', share.withoutForgeParam(location.href))
     if (link && 'input' in link) {
       if (getMode() === 'lab') {
+        if (exploreLock().locked) return void showToast(pt().exploreLocked) // Forge needs Explore
         setMode('explore')
         applyMode()
       }
@@ -476,6 +485,7 @@ app.addEventListener('click', (e) => {
   if (e.target === stage) return setFocus('room') // the scrim round an open card
   const b = (e.target as HTMLElement).closest<HTMLElement>('button')
   if (!b) return
+  if (b.closest('#tools-more')) setMore(false) // a choice was made: the popover must not cover the cards
   if (b.dataset.more !== undefined) setMore(q('#tools-more').dataset.open !== 'true')
   else if (b.dataset.experiment !== undefined) chooser.open()
   else if (b.dataset.go) setFocus(b.dataset.go as Focus)
@@ -512,6 +522,7 @@ app.addEventListener('click', (e) => {
 })
 q<HTMLSelectElement>('[data-scale]').addEventListener('change', (e) => {
   apparatus.timeScale = Number((e.target as HTMLSelectElement).value)
+  setMore(false)
 })
 function setMore(open: boolean) {
   q('#tools-more').dataset.open = String(open)

@@ -138,6 +138,9 @@ const es = {
   csvLabel: 'Descargar los valores guardados (CSV)',
   exportMenu: 'Exportar y datos',
   csvDownload: 'Descargar CSV',
+  // — Export menu: reason for the disabled item —
+  csvNoData: 'Sin datos: haz una medición primero',
+  // — end —
   csvHint: 'CSV estándar (punto decimal). Si tu Excel usa coma decimal: Datos › Desde texto/CSV.',
   clearExposures: 'Borrar exposiciones…',
   clearExposuresLabel: 'Borrar exposiciones registradas (simulación)',
@@ -303,6 +306,9 @@ const en: Dict = {
   csvLabel: 'Download the stored values (CSV)',
   exportMenu: 'Export and data',
   csvDownload: 'Download CSV',
+  // — Export menu: reason for the disabled item —
+  csvNoData: 'No data yet: take a measurement first',
+  // — end —
   csvHint: 'Standard CSV (decimal point). In Excel with a comma-decimal locale use Data › From Text/CSV.',
   clearExposures: 'Clear exposures…',
   clearExposuresLabel: 'Clear logged exposures (simulation)',

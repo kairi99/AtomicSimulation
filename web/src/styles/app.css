@@ -23,7 +23,7 @@ button, select { font: inherit; color: inherit; }
 .tools { display: flex; align-items: center; gap: var(--space-1); flex: none; }
 /* Less-used tools (time scale, λ, theme, language, About): inline on wide screens, a "⋯" menu on phones. */
 .tools-more { display: contents; }
-.tool.more { display: none; }
+.topbar .tool.more { display: none; }
 .tool, .scale select {
   min-height: var(--touch); min-width: var(--touch); border: none; border-radius: var(--radius-full);
   background: transparent; cursor: pointer; touch-action: manipulation;
@@ -337,7 +337,7 @@ button, select { font: inherit; color: inherit; }
   /* The tools need the whole width at 360 px; document.title still names the app. */
   .topbar h1, .sim-tag { display: none; }
   .tools { flex: 1 1 auto; justify-content: flex-end; min-width: 0; position: relative; }
-  .tool.more { display: inline-grid; place-items: center; }
+  .topbar .tool.more { display: inline-grid; place-items: center; }
   .tools-more {
     display: none; position: absolute; z-index: var(--z-chooser); top: calc(100% + var(--space-1)); right: 0;
     align-items: center; gap: var(--space-1); padding: var(--space-1); border-radius: var(--radius-m);

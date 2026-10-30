@@ -180,7 +180,7 @@ export function mountSpectrum(root: HTMLElement, a: Apparatus) {
         <div class="menu-wrap">
           <button class="tool more" data-more aria-label="${s.exportMenu}" title="${s.exportMenu}" aria-haspopup="menu" aria-expanded="false">⋯</button>
           <div class="menu" role="menu" data-menu hidden>
-            <button role="menuitem" data-csv title="${s.csvLabel}. ${s.csvHint}" disabled>${s.csvDownload}</button>
+            <button role="menuitem" data-csv title="${s.csvNoData}" aria-description="${s.csvNoData}" disabled>${s.csvDownload}</button>
             <button role="menuitem" data-csv-exp hidden></button>
             <hr data-sep hidden>
             <button role="menuitem" class="danger" data-csv-clear title="${s.clearExposuresLabel}" aria-label="${s.clearExposuresLabel}" hidden>${s.clearExposures}</button>
@@ -463,7 +463,12 @@ export function mountSpectrum(root: HTMLElement, a: Apparatus) {
     }
     const n = scan ? a.replay.length : 0
     const csv = head.querySelector<HTMLButtonElement>('[data-csv]')!
-    if (csv.disabled !== (n === 0)) csv.disabled = n === 0
+    if (csv.disabled !== (n === 0)) {
+      csv.disabled = n === 0
+      csv.title = n === 0 ? t().csvNoData : `${t().csvLabel}. ${t().csvHint}`
+      if (n === 0) csv.setAttribute('aria-description', t().csvNoData)
+      else csv.removeAttribute('aria-description')
+    }
     // Simulation aid: the exposure series (EPN P1) has its own export, shown once an exposure is logged.
     const exp = head.querySelector<HTMLButtonElement>('[data-csv-exp]')!
     const m = a.exposureLog.length

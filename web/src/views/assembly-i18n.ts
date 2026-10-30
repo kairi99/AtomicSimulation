@@ -106,13 +106,13 @@ const es = {
     targetStage: ['Retira la platina del blanco del soporte', 'El soporte debe quedar libre para los absorbentes. Arrastra la platina y suéltala sobre la mesa.'],
     absorbersI: ['Pon el juego I de absorbentes en el soporte', 'El borde guía entra en la ranura curva de 90°.'],
     door: ['Cierra la puerta', 'Desliza la puerta por su asa hasta cerrarla (o usa el botón). Solo con la puerta cerrada el equipo da alta tensión.'],
-    zero: ['Pulsa ZERO en el panel', 'Lleva el blanco y el sensor a la posición cero guardada: planos reticulares y eje del contador paralelos al haz. La ficha lo calibra en el primer máximo Kα.'],
+    zero: ['Pulsa ZERO en el panel', 'Lleva el blanco y el sensor a la posición cero guardada: planos reticulares y eje del contador paralelos al haz. El cero del simulador ya está calibrado: una pulsación de ZERO sustituye la búsqueda manual del máximo y su guardado de la ficha.'],
   } as Record<string, [string, string]>,
   /** Steps worded differently in the attenuation guide (leaflet P6.3.2.1). */
   stepsAtt: {
     s1: ['Ajusta s₁ ≈ {cm} cm', 'Del colimador a la ventana vacía del juego de absorbentes. Fija la mancha y la divergencia del haz en el blanco y deja sitio a los brazos. Suelta al llegar.'],
     s2: ['Ajusta s₂ ≈ {cm} cm', 'De la ventana vacía a la ranura del sensor. Mantén la geometría de la guía para que las tasas coincidan con los valores de referencia. Suelta al llegar.'],
-    zero: ['Pulsa ZERO en el panel', 'Devuelve los brazos a 0° para que la ventana vacía quede en el haz. Comprueba que la ventana abierta da la tasa máxima.'],
+    zero: ['Pulsa ZERO en el panel', 'Devuelve los brazos a 0° para que la ventana vacía quede en el haz. El cero del simulador ya está calibrado: una pulsación de ZERO sustituye la búsqueda manual del máximo y su guardado.'],
   } as Record<string, [string, string]>,
   // Why a distractor is refused, by experiment (physics reasons, not just "not now").
   wrongPartExtra: {
@@ -240,12 +240,12 @@ const en: typeof es = {
     targetStage: ['Take the target stage off the holder', 'The holder must be free for the absorbers. Drag the stage and drop it on the table.'],
     absorbersI: ['Put absorber set I on the holder', 'The guide edge goes into the 90° curved groove.'],
     door: ['Close the door', 'Slide the door shut by its handle (or use the button). The apparatus gives high voltage only with the door closed.'],
-    zero: ['Press ZERO on the panel', 'It returns the target and the sensor to the stored zero: lattice planes and counter axis parallel to the beam. The leaflet calibrates it on the first Kα maximum.'],
+    zero: ['Press ZERO on the panel', 'It returns the target and the sensor to the stored zero: lattice planes and counter axis parallel to the beam. The simulator’s zero is already calibrated: one ZERO press replaces the leaflet’s manual maximum search and save.'],
   },
   stepsAtt: {
     s1: ['Set s₁ ≈ {cm} cm', 'From the collimator to the empty window of the absorber set. It sets the beam spot and divergence at the target and leaves room for the arms. Let go when you get there.'],
     s2: ['Set s₂ ≈ {cm} cm', 'From the empty window to the sensor slit. Keep the guide’s geometry so the rates match the reference values. Let go when you get there.'],
-    zero: ['Press ZERO on the panel', 'It returns the arms to 0° so the empty window sits in the beam. Check that the open window gives the maximum rate.'],
+    zero: ['Press ZERO on the panel', 'It returns the arms to 0° so the empty window sits in the beam. The simulator’s zero is already calibrated: one ZERO press replaces the manual maximum search and save.'],
   },
   wrongPartExtra: {
     bragg: {

@@ -3,6 +3,10 @@
 export const es = {
   learn: 'Aprender',
   tasks: 'Tareas guiadas',
+  // — Explore lock —
+  exploreLocked: 'Explorar se desbloquea al terminar las tareas de laboratorio de este experimento',
+  exploreUnlocked: '¡Experimento completado! Modo Explorar desbloqueado',
+  // — end —
   otherPractices: 'Otras prácticas (requieren otro montaje)',
   back: 'Todas las tareas',
   levels: ['', 'Introducción', 'Básica', 'Reto'],

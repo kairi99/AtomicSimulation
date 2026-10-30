@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, test, vi } from 'vitest'
 import { Apparatus, OK_S, SAFE_S } from '../src/apparatus/apparatus'
 import { markExported } from '../src/pedagogy/csv'
 import { setMode } from '../src/pedagogy/mode'
+import { markCompleted } from '../src/pedagogy/progress'
 import { crystalAllowed, crystalPicker } from '../src/views/setup'
 import { mountLearn } from '../src/pedagogy/card'
 import { applyInitial, lockedCrystal, setActiveTask } from '../src/pedagogy/task'
@@ -20,6 +21,7 @@ import type { Key } from '../src/apparatus/apparatus'
 
 const SAFETY_S = SAFE_S + OK_S
 beforeAll(async () => {
+  markCompleted('bragg', 'lambda-three-orders') // Explore tasks start only once the experiment's lab tasks are done
   await loadAbsorbers()
   await loadCrystals()
 })

@@ -8,6 +8,7 @@ import { es } from './i18n/es'
 import { clearExports } from './csv'
 import type { Experiment } from '../apparatus/assembly'
 import { getExperiment } from './experiment'
+import { completedIds, lockState, markCompleted, type LockState } from './progress'
 import { getMode, setHints, setMode, type AppMode } from './mode'
 import { applyInitial, setActiveTask, type GuidedTask } from './task'
 import { task as attenuationMaterial } from './tasks/attenuation-material'
@@ -34,6 +35,14 @@ const MODES: AppMode[] = ['explore', 'lab']
 /** Which experiment a task belongs to: attenuation (leaflet P6.3.2.1) or Bragg (the rest: Bragg, LiF, Moseley, XRF, Forge). */
 export const taskExperiment = (k: GuidedTask): Experiment => k.experiment ?? (k.id.startsWith('attenuation-') || k.id === 'background' ? 'attenuation' : 'bragg')
 
+/** The tasks of `exp` that count for the Explore lock: the lab tasks of its core list (Bragg: BRAGG_CORE; Moseley, XRF and
+ * Forge are other practices and never count). */
+export const labCoreIds = (exp: Experiment): string[] =>
+  TASKS.filter((k) => taskExperiment(k) === exp && k.mode === 'lab' && (exp !== 'bragg' || BRAGG_CORE.includes(k.id))).map((k) => k.id)
+const isTeacher = (): boolean => typeof location !== 'undefined' && new URLSearchParams(location.search).has('teacher')
+/** Whether Explore is locked for the current experiment (and how far the student is). `?teacher` bypasses it. */
+export const exploreLock = (): LockState => lockState(labCoreIds(getExperiment()), completedIds(getExperiment()), isTeacher())
+
 /** Guided-task strings in the current language. */
 export const pt = () => (getLang() === 'es' ? es : en)
 const esc = (x: string) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;')
@@ -45,9 +54,11 @@ type Hooks = {
   /** False while the bench is still being assembled: the task list is disabled with a hint. Default: always ready. */
   ready?: () => boolean
   notReadyHint?: () => string
+  /** The last lab task of the experiment was just finished: Explore is open now. */
+  onUnlock?: () => void
 }
 
-export function mountLearn(root: HTMLElement, a: Apparatus, { onMode, onFocus, onAct, ready = () => true, notReadyHint = () => '' }: Hooks) {
+export function mountLearn(root: HTMLElement, a: Apparatus, { onMode, onFocus, onAct, ready = () => true, notReadyHint = () => '', onUnlock = () => {} }: Hooks) {
   let task: GuidedTask | null = null
   let step = 0 // 0 predict · 1 act · 2 observe · 3 explain
   let prediction: string | null = null // the number as typed, or the chosen option's index
@@ -61,7 +72,8 @@ export function mountLearn(root: HTMLElement, a: Apparatus, { onMode, onFocus, o
   const taskItem = (k: GuidedTask) => {
     const p = pt()
     const x = p.task[k.id as keyof typeof p.task]
-    return `<li><button data-task="${k.id}"${ready() ? '' : ' disabled'}>
+    const gated = k.mode === 'explore' && exploreLock().locked
+    return `<li><button data-task="${k.id}"${ready() && !gated ? '' : ' disabled'}${gated ? ` title="${esc(p.exploreLocked)}" aria-description="${esc(p.exploreLocked)}"` : ''}>
             <span class="chip">${x.concept}</span>
             <strong>${x.title}</strong>
             <span class="meta">${p.levels[k.level]} · ${p.modeNote[k.mode]}</span>
@@ -79,12 +91,17 @@ export function mountLearn(root: HTMLElement, a: Apparatus, { onMode, onFocus, o
   const listHtml = () => {
     const s = t()
     const p = pt()
+    const lock = exploreLock()
     return `
       <div class="view-head"><h2>${p.learn}</h2></div>
       <div class="seg" role="group" aria-label="${s.modeLabel}">
-        ${MODES.map((m) => `<button data-mode="${m}" aria-pressed="${getMode() === m}">${s.modes[m]}</button>`).join('')}
+        ${MODES.map((m) => {
+          const off = m === 'explore' && lock.locked
+          return `<button data-mode="${m}" aria-pressed="${getMode() === m}"${off ? ` disabled title="${esc(p.exploreLocked)}" aria-description="${esc(p.exploreLocked)}"` : ''}>${s.modes[m]}${off ? ` <span class="meta">${lock.done}/${lock.total}</span>` : ''}</button>`
+        }).join('')}
       </div>
       <p class="note">${s.modeHint[getMode()]}</p>
+      ${lock.locked ? `<p class="hint" data-lock-note>${p.exploreLocked} (${lock.done}/${lock.total})</p>` : ''}
       ${notice ? `<p class="hint" role="alert">${notice}</p>` : ''}
       <h3>${p.tasks}</h3>
       ${ready() ? '' : `<p class="hint" role="status">${notReadyHint()}</p>`}
@@ -154,6 +171,11 @@ export function mountLearn(root: HTMLElement, a: Apparatus, { onMode, onFocus, o
   }
   const go = (next: number) => {
     step = next
+    if (next >= 2 && task) {
+      const was = exploreLock().locked
+      markCompleted(taskExperiment(task), task.id)
+      if (was && !exploreLock().locked) setTimeout(onUnlock, 0) // after this frame's card rebuild
+    }
     if (next === 1) actFrom = logLen(task)
     setHints(next >= 2) // the expected angles would give the answer away before it is found
     if (task) lock(next < 2)
@@ -163,6 +185,7 @@ export function mountLearn(root: HTMLElement, a: Apparatus, { onMode, onFocus, o
   }
   const start = (k: GuidedTask) => {
     if (!ready()) return
+    if (k.mode === 'explore' && exploreLock().locked) return // Explore tasks wait for the lab tasks
     if (a.busy && !window.confirm(pt().busyConfirm)) return // preparing the bench would cut the running measurement short
     const restart = task === k // a free-pick task started over keeps the student's crystal
     task = k
@@ -200,6 +223,7 @@ export function mountLearn(root: HTMLElement, a: Apparatus, { onMode, onFocus, o
     if (!b) return
     const d = b.dataset
     if (d.mode && d.mode !== getMode()) {
+      if (d.mode === 'explore' && exploreLock().locked) return
       setMode(d.mode as AppMode)
       onMode()
       build()

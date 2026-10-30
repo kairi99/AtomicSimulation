@@ -4,6 +4,10 @@ import type { PedagogyDict } from './es'
 export const en: PedagogyDict = {
   learn: 'Learn',
   tasks: 'Guided tasks',
+  // — Explore lock —
+  exploreLocked: 'Explore unlocks when you finish this experiment’s lab tasks',
+  exploreUnlocked: 'Experiment complete! Explore mode unlocked',
+  // — end —
   otherPractices: 'Other practices (need a different setup)',
   back: 'All tasks',
   levels: ['', 'Intro', 'Core', 'Challenge'],
