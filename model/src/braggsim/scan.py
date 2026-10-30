@@ -52,6 +52,19 @@ AIR_MG_CM2 = 1.205 * AIR_PATH_CM
 ABSORBER = "Glass, Pyrex"
 U_REF_KV = 35.0  # voltage at which leak_amp_per_s and scatter_per_s are quoted
 
+# Goniometer geometry (model/PARAMETERS.md, "Apparatus assumptions"). s1: collimator slit → crystal,
+# s2: crystal → counter slit, in cm. The fitted σ, leak, scatter and scale hold at the leaflet's
+# s1 ≈ 5 cm, s2 ≈ 6 cm; the direct-beam anchor (EPN Práctica 1) at s1 = s2 = 5 cm.
+REF_S1_CM, REF_S2_CM = 5.0, 6.0
+DIRECT_REF_S1_CM, DIRECT_REF_S2_CM = 5.0, 5.0
+# Effective slit widths (assumptions, neither measured nor fitted): the collimator exit slit and
+# the counter entrance slit as seen by the Bragg angle. A uniform slit of width w at distance s
+# smears the angle with rms w/(s√12).
+COLLIMATOR_WIDTH_MM = 0.2
+COUNTER_SLIT_WIDTH_MM = 0.3
+# Tube focus → collimator slit (assumption): 12 cm anode → crystal (``AIR_PATH_CM``) less s1 = 5.
+SOURCE_TO_COLLIMATOR_CM = 7.0
+
 # Sensor arm range −10° … +170° (LD 554 800) → coupled target angle β = θ in −5° … +85°.
 # The target arm turns without limit.
 SENSOR_MIN_DEG, SENSOR_MAX_DEG = -10.0, 170.0
@@ -78,7 +91,7 @@ class ModelParams:
     scale: float  # counts/s per relative source unit
     line_to_cont: float  # Kα line strength relative to the continuum (1/pm)
     debye_waller_pm2: float  # effective B of exp(−2B s²), weakening the higher orders
-    sigma_deg: float  # Gaussian angular resolution at s1 ≈ 5 cm, s2 ≈ 6 cm
+    sigma_deg: float  # Gaussian angular resolution at s1 = 5 cm, s2 = 6 cm (``angular_sigma_deg``)
     tau_s: float  # GM dead time
     leak_amp_per_s: float  # direct-beam halo at 2θ = 0, at 35 kV and 1 mA (extrapolated)
     leak_width_deg: float  # its Gaussian width in 2θ
@@ -159,6 +172,60 @@ def coupled_betas(lo_deg, hi_deg, step_deg):
         raise ValueError(f"{n} steps: a scan has at most {MAX_SCAN_STEPS}")
     # np.minimum: the 1e-9 slack must never put the last β past the limit.
     return np.minimum(np.round(lo_deg + step_deg * np.arange(n), 10), hi_deg)
+
+
+def _check_geometry(s1_cm, s2_cm):
+    if not (math.isfinite(s1_cm) and math.isfinite(s2_cm) and s1_cm > 0 and s2_cm > 0):
+        raise ValueError("s1_cm and s2_cm must be finite and > 0")
+
+
+def _slit_sigma_sq_deg2(width_mm, distance_cm):
+    """Variance in deg² of a uniform slit of ``width_mm`` seen from ``distance_cm``: (w/(s√12))²."""
+    return math.degrees(width_mm / (10 * distance_cm) / math.sqrt(12)) ** 2
+
+
+def angular_sigma_deg(s1_cm=REF_S1_CM, s2_cm=REF_S2_CM, params=DEFAULT):
+    """Gaussian angular resolution σ in degrees at collimator distance ``s1_cm`` and counter
+    distance ``s2_cm``: σ² = σ_col²(s1) + σ_slit²(s2) + σ_res², with the beam divergence
+    σ_col = w_col/(s1 √12) and the counter acceptance σ_slit = w_slit/(s2 √12) (uniform slits,
+    ``COLLIMATOR_WIDTH_MM``, ``COUNTER_SLIT_WIDTH_MM``). The residual σ_res (crystal mosaic,
+    focal spot, Kα doublet remainder) is fixed by σ(REF_S1_CM, REF_S2_CM) = ``params.sigma_deg``,
+    so there is no new free parameter. Leaflet P6.3.3.1: smaller s2 means worse resolution."""
+    _check_geometry(s1_cm, s2_cm)
+    if s1_cm == REF_S1_CM and s2_cm == REF_S2_CM:
+        return params.sigma_deg
+    ref = _slit_sigma_sq_deg2(COLLIMATOR_WIDTH_MM, REF_S1_CM) + _slit_sigma_sq_deg2(
+        COUNTER_SLIT_WIDTH_MM, REF_S2_CM
+    )
+    res_sq = params.sigma_deg**2 - ref
+    if res_sq < 0:
+        raise ValueError("sigma_deg is below the geometric resolution at the reference slits")
+    return math.sqrt(
+        res_sq
+        + _slit_sigma_sq_deg2(COLLIMATOR_WIDTH_MM, s1_cm)
+        + _slit_sigma_sq_deg2(COUNTER_SLIT_WIDTH_MM, s2_cm)
+    )
+
+
+def direct_beam_factor(s1_cm, s2_cm, ref_s1_cm=REF_S1_CM, ref_s2_cm=REF_S2_CM):
+    """Direct-beam intensity at the counter relative to the reference geometry, 1 there: the
+    inverse square of the path from the tube focus, (r_ref/r)², r = SOURCE_TO_COLLIMATOR_CM + s1
+    + s2. The collimator takes a fixed solid angle from the tube, and the counter slit (fixed
+    area) collects the diverging beam as from a point source at the tube. Applies to the leak
+    halo (the counter in the beam past the crystal) and ``direct_rate`` (own reference
+    ``DIRECT_REF_*``, EPN Práctica 1)."""
+    _check_geometry(s1_cm, s2_cm)
+    r = SOURCE_TO_COLLIMATOR_CM + s1_cm + s2_cm
+    return ((SOURCE_TO_COLLIMATOR_CM + ref_s1_cm + ref_s2_cm) / r) ** 2
+
+
+def crystal_factor(s2_cm, ref_s2_cm=REF_S2_CM):
+    """Intensity of what the crystal sends out (Bragg signal and scattered radiation) relative to
+    the reference, (s2_ref/s2)²: the illuminated spot is a source of fixed power (the collimator
+    fixes what reaches the crystal, whatever s1), and the counter slit of fixed area subtends the
+    solid angle ∝ 1/s2². Leaflet P6.3.3.1: smaller s2, more counts."""
+    _check_geometry(REF_S1_CM, s2_cm)
+    return (ref_s2_cm / s2_cm) ** 2
 
 
 def _transmission(lambda_pm, params, filters=()):
@@ -256,7 +323,10 @@ def _check_tube(U_kV, I_mA):
         raise ValueError(f"U_kV must be in 0 … {U_MAX_KV}, I_mA in 0 … {I_MAX_MA} (LD 554 800)")
 
 
-def expected_rate(beta_deg, U_kV, I_mA, params=DEFAULT, sensor_deg=None, filters=(), crystal=NACL):
+def expected_rate(
+    beta_deg, U_kV, I_mA, params=DEFAULT, sensor_deg=None, filters=(), crystal=NACL,
+    s1_cm=REF_S1_CM, s2_cm=REF_S2_CM,
+):  # fmt: skip
     """Expected observed counting rate R̄ in counts/s (deterministic).
 
     ``beta_deg``: target (crystal) angles; ``U_kV``: tube voltage; ``I_mA``: emission current.
@@ -282,7 +352,18 @@ def expected_rate(beta_deg, U_kV, I_mA, params=DEFAULT, sensor_deg=None, filters
     (``crystal.extinction_ratio``:
     Darwin–Prins for the near-perfect crystals, secondary extinction for LiF); leak, scatter and
     background do not depend on the crystal.
+
+    ``s1_cm``, ``s2_cm``: collimator and counter distances (``REF_S1_CM``, ``REF_S2_CM`` at the
+    fit). They set σ (``angular_sigma_deg``, replacing ``params.sigma_deg``, also in the rocking
+    curve), the Bragg signal and the scatter (``crystal_factor``) and the leak halo
+    (``direct_beam_factor``); the natural background is independent. Defaults leave R̄ unchanged.
     """
+    _check_geometry(s1_cm, s2_cm)
+    sigma_deg = angular_sigma_deg(s1_cm, s2_cm, params)
+    if sigma_deg != params.sigma_deg:
+        params = params.replace(sigma_deg=sigma_deg)
+    gain = crystal_factor(s2_cm)
+    halo = direct_beam_factor(s1_cm, s2_cm)
     beta = np.asarray(beta_deg, dtype=float)
     if sensor_deg is None:
         if not np.all((beta >= BETA_MIN_DEG) & (beta <= BETA_MAX_DEG)):  # NaN fails too
@@ -301,19 +382,22 @@ def expected_rate(beta_deg, U_kV, I_mA, params=DEFAULT, sensor_deg=None, filters
         return beta
     theta = np.abs(sensor) / 2
     true_rate = params.background_per_s + tube_factor(U_kV, I_mA, params, filters) * (
-        params.scatter_per_s
-        + params.leak_amp_per_s * np.exp(-0.5 * (sensor / params.leak_width_deg) ** 2)
+        params.scatter_per_s * gain
+        + halo * params.leak_amp_per_s * np.exp(-0.5 * (sensor / params.leak_width_deg) ** 2)
     )
     if I_mA > 0 and U_kV > 0:
         rocking = np.exp(-0.5 * ((sensor / 2 - beta) / params.sigma_deg) ** 2)
-        true_rate = true_rate + params.scale * rocking * (
+        true_rate = true_rate + gain * params.scale * rocking * (
             _continuum_density(theta, U_kV, I_mA, params, filters, crystal)
             + _line_density(theta, U_kV, I_mA, params, filters, crystal)
         )
     return dead_time(true_rate, params.tau_s)
 
 
-def direct_rate(U_kV, I_mA, filters=(), params=DEFAULT, sensor_deg=0.0):
+def direct_rate(
+    U_kV, I_mA, filters=(), params=DEFAULT, sensor_deg=0.0,
+    s1_cm=DIRECT_REF_S1_CM, s2_cm=DIRECT_REF_S2_CM,
+):  # fmt: skip
     """Observed counting rate in counts/s with the counter in the direct beam: no crystal, sensor
     at ``sensor_deg``. EPN Práctica 1 (attenuation; collimator, s1 = s2 = 5 cm, GM counter).
 
@@ -322,14 +406,21 @@ def direct_rate(U_kV, I_mA, filters=(), params=DEFAULT, sensor_deg=0.0):
     in ``filters``, ``(material, areal_density_mg_cm2)`` each. Without the crystal the counter sees
     the angular profile of the direct beam, a Gaussian in the sensor angle; its width is assumed
     equal to the fitted leak halo ``leak_width_deg`` (an assumption, no measurement).
+
+    ``s1_cm``, ``s2_cm``: collimator and counter distances; the rate follows ``direct_beam_factor``
+    relative to the anchor's own s1 = s2 = 5 cm, so the anchor stays exact there.
     """
+    _check_geometry(s1_cm, s2_cm)
     if not (math.isfinite(sensor_deg) and SENSOR_MIN_DEG <= sensor_deg <= SENSOR_MAX_DEG):
         raise ValueError(f"sensor outside its range {SENSOR_MIN_DEG}° … {SENSOR_MAX_DEG}°")
     _check_tube(U_kV, I_mA)
     check_filters(filters)
     profile = math.exp(-0.5 * (sensor_deg / params.leak_width_deg) ** 2)
     true_rate = (
-        params.direct_per_s * tube_factor(U_kV, I_mA, params, filters) * profile
+        params.direct_per_s
+        * direct_beam_factor(s1_cm, s2_cm, DIRECT_REF_S1_CM, DIRECT_REF_S2_CM)
+        * tube_factor(U_kV, I_mA, params, filters)
+        * profile
         + params.background_per_s
     )
     return float(dead_time(true_rate, params.tau_s))

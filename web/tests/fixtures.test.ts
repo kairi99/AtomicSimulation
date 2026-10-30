@@ -35,19 +35,19 @@ function run(fn: string, c: Case) {
     case 'scan.expected_rate': {
       const params: ModelParams = x.params ? modelParams(x.params) : DEFAULT
       const crystal = x.crystal ? crystalByName(x.crystal) : undefined
-      const rate = expectedRate(x.beta_deg, x.U_kV, x.I_mA, params, x.sensor_deg, x.filters, crystal)
+      const rate = expectedRate(x.beta_deg, x.U_kV, x.I_mA, params, x.sensor_deg, x.filters, crystal, x.s1_cm, x.s2_cm)
       expectClose(rate, c.expected.rate_per_s)
       // The live apparatus asks for one β at a time: it must give the batch values.
       const n = x.beta_deg.length
       for (const i of [0, 1, n >> 2, n >> 1, (3 * n) >> 2, n - 2, n - 1].filter((i) => i >= 0 && i < n)) {
-        const one = expectedRate([x.beta_deg[i]], x.U_kV, x.I_mA, params, x.sensor_deg && [x.sensor_deg[i]], x.filters, crystal)
+        const one = expectedRate([x.beta_deg[i]], x.U_kV, x.I_mA, params, x.sensor_deg && [x.sensor_deg[i]], x.filters, crystal, x.s1_cm, x.s2_cm)
         expectClose(one, [c.expected.rate_per_s[i]])
       }
       return
     }
     case 'scan.direct_rate': {
       const params: ModelParams = x.params ? modelParams(x.params) : DEFAULT
-      return expectClose([directRate(x.U_kV, x.I_mA, x.filters, params, x.sensor_deg)], [c.expected.rate_per_s])
+      return expectClose([directRate(x.U_kV, x.I_mA, x.filters, params, x.sensor_deg, x.s1_cm, x.s2_cm)], [c.expected.rate_per_s])
     }
     case 'scan.coupled_betas':
       return expectClose(coupledBetas(x.lo_deg, x.hi_deg, x.step_deg), c.expected.beta_deg)

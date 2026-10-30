@@ -452,8 +452,33 @@ Added 2026-10-14. No measurement behind any of them.
 | Name | Value | Why |
 |---|---|---|
 | Direct-beam profile (`scan.direct_rate` `sensor_deg`) | Gaussian, width = `leak_width_deg` | Without a crystal the counter sees the beam's angular profile; its width is assumed equal to the fitted leak halo |
+| `scan.COLLIMATOR_WIDTH_MM`, `scan.COUNTER_SLIT_WIDTH_MM` | 0.2 mm, 0.3 mm (2026-10-30) | Effective slit widths for the angular resolution σ(s₁, s₂); the LD sheets give no slit widths. Chosen, not fitted, so that at the reference the collimator term is 29 % and the counter term 45 % of σ² (residual 26 %); rms of a uniform slit is w/(s√12) |
+| `scan.SOURCE_TO_COLLIMATOR_CM` | 7 cm (2026-10-30) | Tube focus → collimator slit; the 12 cm anode → crystal of `AIR_PATH_CM` at s₁ = 5. Used only in the direct-beam inverse square |
+| `scan.REF_S1_CM`, `scan.REF_S2_CM` | 5 cm, 6 cm (2026-10-30) | Geometry of the Fig. 4 fit (leaflet). Everything fitted (σ, scale, leak, scatter) is quoted there |
+| `scan.DIRECT_REF_S1_CM`, `scan.DIRECT_REF_S2_CM` | 5 cm, 5 cm (2026-10-30) | Geometry of the `direct_per_s` anchor (EPN Práctica 1) |
 | `WHEEL_WINDOW_DEG` | 3° | A 554 834 slot is in the beam within ±3° of its centre; between slots the frame blocks it (background only). Binary window, to be confirmed by the lab staff |
 | `Apparatus.saturated` threshold | dead-time loss 1 − m/R = m·τ > 0.30 (R·τ > 0.43) | For a non-paralysable counter the lost fraction equals the observed m·τ. The warning fires when more than 30 % of the pulses are lost, i.e. when the dead-time model choice and the uncorrected rates start to dominate the evaluation. Changed 2026-10-30 from R·τ = 0.3 (23 % loss), which tripped at the guide's own settings (30 kV, 0.02 mA, open slot: ≈ 24 % loss in our model, whose rate is ≈ 1.33× the leaflet's tabulated 1841/s, i.e. ≈ 18 % there; the polystyrene 0.5 mm reading of P1 run 2a, 24 %, no longer trips either). Wording says what is lost, not that the counter is broken. Web-only UI threshold, no model value changes |
+
+## Geometry: s₁ and s₂ (added 2026-10-30)
+
+`expected_rate(..., s1_cm, s2_cm)` and `direct_rate(..., s1_cm, s2_cm)`. No new fitted parameter: every factor is 1
+at the reference geometry, so the Fig. 4 match, the fixtures and `direct_per_s` (EPN P1 anchor) are unchanged there.
+
+- **Resolution** `angular_sigma_deg`: σ² = σ_col² + σ_slit² + σ_res², σ_col = w_col/(s₁√12), σ_slit = w_slit/(s₂√12)
+  (widths in the table above). σ_res² = `sigma_deg`² − σ_col²(5) − σ_slit²(6), i.e. fixed by σ(5, 6) = 0.1228°, and
+  stands for the crystal mosaic, the focal spot and the Kα doublet. σ also sets the rocking-curve width. With
+  these widths σ = 0.264° (s₂ = 2), 0.100° (s₂ = 12) at s₁ = 5; 0.151° (s₁ = 3), 0.111° (s₁ = 8) at s₂ = 6.
+- **Bragg signal and scatter** `crystal_factor` = (6 cm/s₂)². The collimator fixes what reaches the crystal (power
+  independent of s₁); the illuminated spot is a source of fixed power and the counter slit of fixed area subtends
+  Ω ∝ 1/s₂² (a slit, not a round window, so it is not 1/s₂). Line area scales with it; the peak height by that over σ.
+- **Direct beam** (`direct_rate`, the leak halo) `direct_beam_factor` = (r_ref/r)², r = 7 cm + s₁ + s₂: with no
+  crystal the counter slit collects the diverging beam as from a point source at the tube. `direct_rate` is normalised at
+  s₁ = s₂ = 5 cm (the anchor); the halo at the Bragg reference (5, 6). So the same beam at (5, 6) reads
+  (17/18)² = 0.89 of the anchor, which is the physical consequence of the two references.
+- **Not modelled:** the air path (≤ 0.4 %/cm for Mo Kα), the crystal footprint exceeding the crystal at small s₁,
+  a θ-dependent σ, the counter slit height. Arm collision limits stay in `apparatus/collision.ts`.
+- The factors are scalings, not measurements: they give the right trend (leaflet: smaller s₂, more counts, worse
+  resolution) but the exponents and widths should be checked against a real scan at another s₂.
 
 ## Calibration-only (never used by the model)
 
@@ -472,7 +497,8 @@ Added 2026-10-14. No measurement behind any of them.
   heights across orders agree within 25 %.
 - **Counter efficiency ε(λ) is constant.** The 559 01 fill gas is unknown, so a λ-dependent ε would be
   degenerate with the absorber. A constant ε cancels in T; the direct-beam μ_eff (EPN P1) inherits the Fig. 4-fitted detected shape (ε(λ) included, 35–200 pm); the residual ≈ 1–2 % on μ_eff comes from the crystal's Q(λ) ∝ λ³/μ treated as constant in the fit, not from ε. Not needed now (physics review 2026-10-20).
-- **One σ for every angle and slit.** σ(s₁, s₂) waits until a slit control exists.
+- **One σ for every angle.** σ depends on s₁ and s₂ (next section) but not on θ or λ (Kα₁/Kα₂ dispersion, which grows with θ, is inside the residual).
+- **Distance dependence is an assumption, not a measurement** (2026-10-30). See "Geometry: s₁ and s₂" below.
 - **Mosaic crystal: Q/2μ taken as constant within an order.** In reality, λ³/μ_NaCl(λ) rises
   ≈ 27 % from 40 to 200 pm. Adding it (xraylib, no free parameter) improves the fit by only 0.0003 dex
   and moves the absorber by ≈ 6 %. The fitted absorber absorbs it. Extinction is folded

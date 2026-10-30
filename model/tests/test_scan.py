@@ -380,3 +380,110 @@ def test_tube_factor_integrates_through_a_filter_edge_without_ramping(material, 
     lam = np.linspace(30.0, 600.0, 400_001)
     dense = np.trapezoid(continuum(lam, U_kV, 1.0) * _transmission(lam, params, filters), lam)
     assert _photons_out(U_kV, params, filters) == approx(dense, rel=1e-4)
+
+
+# ── Collimator and counter distances s1, s2 ──────────────────────────────────────────────────────
+from braggsim import scan as _scan  # noqa: E402
+
+GEOMETRIES_CM = [(2, 2), (5, 2), (5, 12), (3, 6), (8, 6), (12, 12), (5.3, 6.4)]
+KA_THETA_DEG = float(theta_from_lambda(MO_KA_PM, 1, 282.01))
+
+
+def _ka_peak(s1_cm, s2_cm):
+    beta = np.linspace(KA_THETA_DEG - 1, KA_THETA_DEG + 1, 801)
+    return expected_rate(beta, 35.0, 1.0, s1_cm=s1_cm, s2_cm=s2_cm).max()
+
+
+def test_resolution_equals_the_fitted_sigma_at_the_leaflet_geometry():
+    assert _scan.angular_sigma_deg(5.0, 6.0) == DEFAULT.sigma_deg
+    assert _scan.angular_sigma_deg(5.0, 6.0, DEFAULT.replace(sigma_deg=0.3)) == 0.3
+
+
+def test_default_geometry_leaves_every_rate_unchanged():
+    ref = expected_rate(LEAFLET_BETAS, 35.0, 1.0)
+    assert np.array_equal(expected_rate(LEAFLET_BETAS, 35.0, 1.0, s1_cm=5.0, s2_cm=6.0), ref)
+    assert direct_rate(21.0, 0.05, s1_cm=5.0, s2_cm=5.0) == direct_rate(21.0, 0.05)
+
+
+def test_resolution_improves_with_either_distance_and_stays_above_the_residual():
+    s = [_scan.angular_sigma_deg(5, s2) for s2 in (2, 4, 6, 9, 12)]
+    assert all(a > b for a, b in zip(s, s[1:], strict=False))
+    s = [_scan.angular_sigma_deg(s1, 6) for s1 in (2, 3, 5, 8, 12)]
+    assert all(a > b for a, b in zip(s, s[1:], strict=False))
+    # infinite distances leave only the residual (mosaic, focal spot): finite and positive
+    floor = _scan.angular_sigma_deg(1e9, 1e9)
+    assert 0 < floor < _scan.angular_sigma_deg(12, 12)
+
+
+def test_resolution_adds_the_two_slits_in_quadrature():
+    # σ² differences between geometries are exactly the slit terms, whatever the residual
+    def sq(s1, s2):
+        return _scan.angular_sigma_deg(s1, s2) ** 2
+
+    assert sq(5, 3) - sq(5, 6) == approx(sq(9, 3) - sq(9, 6), rel=1e-9)  # independent of s1
+    # divergence ∝ 1/s: halving the distance quadruples a slit's variance
+    w = _scan.COUNTER_SLIT_WIDTH_MM
+    assert _scan._slit_sigma_sq_deg2(w, 3.0) == approx(4 * _scan._slit_sigma_sq_deg2(w, 6.0))
+
+
+def test_resolution_in_the_assembly_range_is_a_sensible_instrument():
+    # s2 = 2 cm is clearly broader than the fit (Kα/Kβ, 0.8° apart in 1st order, begin to merge),
+    # s2 = 12 cm sharper but never below the residual.
+    broad = _scan.angular_sigma_deg(5, 2)
+    sharp = _scan.angular_sigma_deg(5, 12)
+    assert 2 * DEFAULT.sigma_deg < broad < 0.4
+    assert 0.07 < sharp < DEFAULT.sigma_deg
+
+
+def test_counter_closer_gives_taller_peaks_and_farther_lower():
+    peaks = [_ka_peak(5, s2) for s2 in (2, 4, 6, 9, 12)]
+    assert all(a > b for a, b in zip(peaks, peaks[1:], strict=False))
+    assert _ka_peak(3, 6) < _ka_peak(5, 6) < _ka_peak(8, 6)  # larger s1: sharper, taller
+
+
+def test_bragg_signal_area_scales_with_the_counter_solid_angle():
+    # Integrated Kα counts above the floor follow (s2_ref/s2)² (the counter slit's solid angle at
+    # fixed power from the crystal); σ only redistributes them. Low current: no dead time.
+    beta = np.linspace(KA_THETA_DEG - 2, KA_THETA_DEG + 2, 4001)
+    p = DEFAULT.replace(tau_s=1e-12)
+
+    def area(s2):
+        r = expected_rate(beta, 35.0, 0.01, p, s1_cm=5.0, s2_cm=s2)
+        floor = min(r[0], r[-1])
+        return np.trapezoid(r - floor, beta)
+
+    assert area(12.0) / area(6.0) == approx(0.25, rel=0.02)
+    assert area(3.0) / area(6.0) == approx(4.0, rel=0.02)
+
+
+def test_background_does_not_depend_on_the_geometry():
+    ref = expected_rate([5.0], 0.0, 0.0)[0]
+    for s1, s2 in GEOMETRIES_CM:
+        assert expected_rate([5.0], 0.0, 0.0, s1_cm=s1, s2_cm=s2)[0] == ref
+
+
+def test_direct_beam_anchor_is_exact_at_its_reference_and_follows_the_inverse_square():
+    ref = direct_rate(21.0, 0.05)
+    assert ref >= 950.0  # EPN Práctica 1
+    assert direct_rate(21.0, 0.05, s1_cm=5.0, s2_cm=5.0) == ref
+    p = DEFAULT.replace(tau_s=1e-12, background_per_s=0.0)
+    far = direct_rate(21.0, 0.05, (), p, s1_cm=9.0, s2_cm=9.0)
+    near = direct_rate(21.0, 0.05, (), p, s1_cm=5.0, s2_cm=5.0)
+    assert far / near == approx(((7 + 10) / (7 + 18)) ** 2, rel=1e-9)
+    assert direct_rate(21.0, 0.05, s1_cm=2.0, s2_cm=2.0) > ref
+
+
+@pytest.mark.parametrize("s1_cm, s2_cm", [(0, 6), (5, -1), (float("nan"), 6), (5, float("inf"))])
+def test_nonsense_geometry_is_rejected(s1_cm, s2_cm):
+    with pytest.raises(ValueError):
+        expected_rate([5.0], 35.0, 1.0, s1_cm=s1_cm, s2_cm=s2_cm)
+    with pytest.raises(ValueError):
+        direct_rate(21.0, 0.05, s1_cm=s1_cm, s2_cm=s2_cm)
+
+
+def test_geometry_is_independent_of_which_betas_are_queried_together():
+    # the convolution grid depends on σ: R̄ at one β must not depend on its neighbours
+    grid = np.linspace(5, 9, 41)
+    one = expected_rate([7.2], 35.0, 1.0, s1_cm=4.0, s2_cm=3.0)[0]
+    many = expected_rate(grid, 35.0, 1.0, s1_cm=4.0, s2_cm=3.0)
+    assert one == approx(many[np.argmin(abs(grid - 7.2))], rel=1e-9)

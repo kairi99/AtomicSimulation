@@ -4,7 +4,7 @@
 // Settings are integers in device steps (U in 0.1 kV, I in 0.01 mA, angles in 0.1°) and become floats
 // only when the physics is called: 100 × 0.01 mA summed in floats is 1.0000000000000007 mA > 1 mA.
 import { mulberry32, poisson, type Rng } from '../physics/detector'
-import { BETA_MAX_DEG, BETA_MIN_DEG, DEFAULT, directRate, expectedRate, type ModelParams } from '../physics/scan'
+import { BETA_MAX_DEG, BETA_MIN_DEG, DEFAULT, DIRECT_REF_S1_CM, DIRECT_REF_S2_CM, REF_S1_CM, REF_S2_CM, directRate, expectedRate, type ModelParams } from '../physics/scan'
 import { crystalByName, type Crystal } from '../physics/crystal'
 import { mcaSpectrum } from '../physics/fluorescence'
 import { FOILS_MG_CM2, WHEELS_MG_CM2, XRF, absorbersLoaded, foilOf } from '../physics/tables'
@@ -209,6 +209,8 @@ export class Apparatus {
   timeScale = 1 // 1, 10, 100 or Infinity (instant); simulation-only, not a feature of the real device
   private clockS = 0
   private limits: ArmLimits | null = null
+  /** s₁, s₂ (cm) the physics runs at: the bench distances, or the model's reference geometry without any. */
+  private geo: { s1Cm: number; s2Cm: number } | null = null
 
   private rng: Rng
   private params: ModelParams
@@ -291,7 +293,7 @@ export class Apparatus {
     const { u, i, sensor, target, params } = this
     if (this._setup.detector === 'energy') return 0 // no GM plugged in: the rate display idles
     if (!this.hvOn) return directRate(0, 0, [], params)
-    if (this._setup.holder === 'crystal') return expectedRate([target / 10], u / 10, i / 100, params, [sensor / 10], this.foils(), this.crystal)[0]
+    if (this._setup.holder === 'crystal') return expectedRate([target / 10], u / 10, i / 100, params, [sensor / 10], this.foils(), this.crystal, this.geo?.s1Cm ?? REF_S1_CM, this.geo?.s2Cm ?? REF_S2_CM)[0]
     // ponytail: the GM with a sample on the holder sees background only (fluorescence into the GM is not modelled); Python first if a task needs it
     return this.direct(sensor / 10) ?? directRate(0, 0, [], params)
   }
@@ -302,7 +304,7 @@ export class Apparatus {
     const slot = this._setup.holder === 'empty' ? null : this.wheelSlot()
     if (slot === undefined) return undefined
     const filters = this.foils()
-    return directRate(this.u / 10, this.i / 100, slot ? [...filters, slot] : filters, this.params, sensorDeg)
+    return directRate(this.u / 10, this.i / 100, slot ? [...filters, slot] : filters, this.params, sensorDeg, this.geo?.s1Cm ?? DIRECT_REF_S1_CM, this.geo?.s2Cm ?? DIRECT_REF_S2_CM)
   }
 
   /** Expected rate a counter at the specular angle 2β would see, in counts/s: the reflected beam the
@@ -310,7 +312,7 @@ export class Apparatus {
   specularRate(): number {
     const beta = wrapTarget(this.target) / 10
     if (!this.hvOn || this._setup.holder !== 'crystal' || beta < BETA_MIN_DEG || beta > BETA_MAX_DEG) return 0
-    return expectedRate([beta], this.u / 10, this.i / 100, this.params, undefined, this.foils(), this.crystal)[0]
+    return expectedRate([beta], this.u / 10, this.i / 100, this.params, undefined, this.foils(), this.crystal, this.geo?.s1Cm ?? REF_S1_CM, this.geo?.s2Cm ?? REF_S2_CM)[0]
   }
 
   /** Expected rate straight through the target position (sensor at 0°) without the crystal, in counts/s:
@@ -672,6 +674,7 @@ export class Apparatus {
    * the arms stall there, and anything beyond is out of reach. null: no geometry, the plain ranges apply. */
   setGeometry(g: { s1Cm: number; s2Cm: number; refCm?: number } | null): void {
     this.limits = g && armLimits(g.s1Cm, g.s2Cm, g.refCm ?? 0)
+    this.geo = g && { s1Cm: g.s1Cm, s2Cm: g.s2Cm }
     const [sLo, sHi] = this.armRange('SENSOR')
     const [tLo, tHi] = this.armRange('TARGET')
     this.sensor = clamp(this.sensor, sLo, sHi)
