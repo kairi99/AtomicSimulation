@@ -37,7 +37,9 @@ const ANODE_X = (COL_X + WALL_X) / 2
 const DOOR_W = W / 2 - WALL_X - 1.5
 const DOOR_X = (W / 2 + WALL_X) / 2 // the door's centre when closed
 const DOOR_Z = D / 2 + 3 // its own track, in front of the tube chamber's door and the panel (the ADJUST knob stands 1.4 proud)
-const DOOR_SLIDE = DOOR_X - DOOR_W / 2 + W / 2 - 0.3 // open, it has slid to the apparatus's left edge, over the tube chamber and the panel
+// Open, it has slid left over the tube chamber until its right stile sits right in front of the frame on the dividing wall
+// (WALL_X): one rod to the eye. Stopped a few cm short of that, the two parallel bars shifted against each other as the camera moved.
+const DOOR_SLIDE = DOOR_X + DOOR_W / 2 - 0.5 - WALL_X
 const PANEL = { x: (-W / 2 + COL_X) / 2, y: 27.5, w: 15.5, h: 28 } // control panel face
 const PX_PER_CM = 64 // panel texture resolution
 const MONITOR = { x: 60, z: -4, yaw: -0.35, w: 44, h: 27.5, y: 34 } // a 20″ screen
@@ -178,7 +180,7 @@ export function mountBench(
   dev.add(box(W, 0.8, D, housing, 0, FLOOR - 0.4, 0))
   const handleMat = matte('bench-metal', { roughness: 0.5 })
   const roof = new THREE.Group() // cut away while assembling: the camera looks down into the chamber
-  roof.add(box(W, H - CEIL, D, housing, 0, (H + CEIL) / 2, 0), box(W + 0.4, 0.7, 0.5, M.edge, 0, H - 0.35, D / 2 + 0.05))
+  roof.add(box(W, H - CEIL, D, housing, 0, (H + CEIL) / 2, 0), box(W + 0.4, 0.7, 0.5, M.edge, 0, H - 0.3, D / 2 + 0.05)) // trim top 0.05 above the roof's: flush, they z-fought
   for (const x of [-W / 2 + 8, W / 2 - 8]) {
     // carry handles on the top corners: a flat grey strap on two posts
     roof.add(box(2.4, 0.7, 10, handleMat, x, H + 1.6, 0), box(2.4, 1.6, 1, handleMat, x, H + 0.8, -4.5), box(2.4, 1.6, 1, handleMat, x, H + 0.8, 4.5))
@@ -205,13 +207,14 @@ export function mountBench(
   dev.add(box(tx1 - tx0, 0.2, D - 2, M.black, (tx0 + tx1) / 2, FLOOR + 0.1, 0))
   dev.add(box(0.2, IH, D - 2, M.black, tx0 + 0.1, (CEIL + FLOOR) / 2, 0))
   dev.add(box(0.2, IH, D - 2, M.black, tx1 - 0.1, (CEIL + FLOOR) / 2, 0))
-  // Front frames round both doors, a little proud of the chambers (brushed stainless).
-  const zf = D / 2 - 0.5
+  // Front frames round both doors, a little proud of the chambers (brushed stainless). Their front faces stand 0.3 cm
+  // in front of the housing's (z = D/2): flush, the steel and the grey z-fought along every frame while the camera moved.
+  const zf = D / 2 - 0.2
   dev.add(box(2.2, CEIL - FLOOR, 1, M.steel, WALL_X, (CEIL + FLOOR) / 2, zf))
   dev.add(box(1.2, CEIL - FLOOR, 1, M.steel, COL_X + 0.4, (CEIL + FLOOR) / 2, zf))
   dev.add(box(WALL_X - COL_X, 1.2, 1, M.steel, (COL_X + WALL_X) / 2, FLOOR + 0.2, zf)) // sill under the tube chamber
-  // its back face 0.25 cm in front of the frames' front faces (z = D/2): coplanar, they z-fought while the camera moved
-  const tubeDoor = box(WALL_X - COL_X - 1.4, CEIL - FLOOR - 1, 0.4, glass, (WALL_X + COL_X) / 2, (CEIL + FLOOR) / 2, D / 2 + 0.45)
+  // its back face 0.15 cm in front of the frames' front faces (z = D/2 + 0.3), never coplanar with them
+  const tubeDoor = box(WALL_X - COL_X - 1.4, CEIL - FLOOR - 1, 0.4, glass, (WALL_X + COL_X) / 2, (CEIL + FLOOR) / 2, D / 2 + 0.65)
   tubeDoor.renderOrder = GLASS_ORDER
   dev.add(tubeDoor)
   // The large round black port on the right wall of the experiment chamber.
@@ -228,7 +231,7 @@ export function mountBench(
   const door = new THREE.Group()
   const doorH = CEIL - FLOOR - 1 // full height, up to the top of the housing as on the real device
   const pane = box(DOOR_W - 2.2, doorH - 1.6, 0.4, doorGlass, 0.2, 0, 0)
-  pane.renderOrder = GLASS_ORDER
+  pane.renderOrder = GLASS_ORDER + 1 // always in front of the tube door's glass: equal orders let the two panes swap while orbiting
   door.add(pane)
   for (const y of [-doorH / 2 + 0.4, doorH / 2 - 0.4]) door.add(box(DOOR_W, 0.8, 0.8, M.steel, 0, y, 0))
   door.add(box(1.4, doorH, 0.8, M.steel, -DOOR_W / 2 + 0.7, 0, 0), box(1, doorH, 0.8, M.steel, DOOR_W / 2 - 0.5, 0, 0))
