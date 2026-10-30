@@ -221,11 +221,14 @@ def direct_beam_factor(s1_cm, s2_cm, ref_s1_cm=REF_S1_CM, ref_s2_cm=REF_S2_CM):
 
 def crystal_factor(s2_cm, ref_s2_cm=REF_S2_CM):
     """Intensity of what the crystal sends out (Bragg signal and scattered radiation) relative to
-    the reference, (s2_ref/s2)²: the illuminated spot is a source of fixed power (the collimator
-    fixes what reaches the crystal, whatever s1), and the counter slit of fixed area subtends the
-    solid angle ∝ 1/s2². Leaflet P6.3.3.1: smaller s2, more counts."""
+    the reference, s2_ref/s2. In the scattering plane the counter slit's acceptance w/s2 is already
+    the σ_slit of the normalised kernel: every reflected photon passes the slit at some β, so the
+    integrated area is conserved and only the peak height (∝ 1/σ) changes. The loss is out of the
+    plane: the diffracted beam's vertical extent grows with s2 and overfills the slit height, so
+    the captured fraction goes as 1/s2 (assumption, not fitted). Leaflet P6.3.3.1: smaller s2,
+    more counts (a taller peak) and worse resolution."""
     _check_geometry(REF_S1_CM, s2_cm)
-    return (ref_s2_cm / s2_cm) ** 2
+    return ref_s2_cm / s2_cm
 
 
 def _transmission(lambda_pm, params, filters=()):

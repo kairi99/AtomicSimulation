@@ -441,9 +441,9 @@ def test_counter_closer_gives_taller_peaks_and_farther_lower():
     assert _ka_peak(3, 6) < _ka_peak(5, 6) < _ka_peak(8, 6)  # larger s1: sharper, taller
 
 
-def test_bragg_signal_area_scales_with_the_counter_solid_angle():
-    # Integrated Kα counts above the floor follow (s2_ref/s2)² (the counter slit's solid angle at
-    # fixed power from the crystal); σ only redistributes them. Low current: no dead time.
+def test_bragg_signal_area_scales_with_the_overfilled_slit_height():
+    # Integrated Kα counts above the floor follow s2_ref/s2 (out-of-plane overfill of the slit
+    # height; in-plane the area is conserved and σ only redistributes it). No dead time.
     beta = np.linspace(KA_THETA_DEG - 2, KA_THETA_DEG + 2, 4001)
     p = DEFAULT.replace(tau_s=1e-12)
 
@@ -452,8 +452,8 @@ def test_bragg_signal_area_scales_with_the_counter_solid_angle():
         floor = min(r[0], r[-1])
         return np.trapezoid(r - floor, beta)
 
-    assert area(12.0) / area(6.0) == approx(0.25, rel=0.02)
-    assert area(3.0) / area(6.0) == approx(4.0, rel=0.02)
+    assert area(12.0) / area(6.0) == approx(0.5, rel=0.02)
+    assert area(3.0) / area(6.0) == approx(2.0, rel=0.02)
 
 
 def test_background_does_not_depend_on_the_geometry():

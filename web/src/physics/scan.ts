@@ -120,10 +120,10 @@ export function directBeamFactor(s1Cm: number, s2Cm: number, refS1Cm: number = R
   return ((SOURCE_TO_COLLIMATOR_CM + refS1Cm + refS2Cm) / (SOURCE_TO_COLLIMATOR_CM + s1Cm + s2Cm)) ** 2
 }
 
-/** port of braggsim.scan.crystal_factor: (s₂_ref/s₂)², the Bragg signal and scatter. */
+/** port of braggsim.scan.crystal_factor: s₂_ref/s₂, the Bragg signal and scatter. */
 export function crystalFactor(s2Cm: number, refS2Cm: number = REF_S2_CM): number {
   checkGeometry(REF_S1_CM, s2Cm)
-  return (refS2Cm / s2Cm) ** 2
+  return refS2Cm / s2Cm
 }
 
 // params with σ replaced, memoised per (params, σ) so the tube cache (keyed by params identity) keeps working.

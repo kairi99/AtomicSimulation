@@ -468,9 +468,13 @@ at the reference geometry, so the Fig. 4 match, the fixtures and `direct_per_s` 
   (widths in the table above). σ_res² = `sigma_deg`² − σ_col²(5) − σ_slit²(6), i.e. fixed by σ(5, 6) = 0.1228°, and
   stands for the crystal mosaic, the focal spot and the Kα doublet. σ also sets the rocking-curve width. With
   these widths σ = 0.264° (s₂ = 2), 0.100° (s₂ = 12) at s₁ = 5; 0.151° (s₁ = 3), 0.111° (s₁ = 8) at s₂ = 6.
-- **Bragg signal and scatter** `crystal_factor` = (6 cm/s₂)². The collimator fixes what reaches the crystal (power
-  independent of s₁); the illuminated spot is a source of fixed power and the counter slit of fixed area subtends
-  Ω ∝ 1/s₂² (a slit, not a round window, so it is not 1/s₂). Line area scales with it; the peak height by that over σ.
+- **Bragg signal and scatter** `crystal_factor` = 6 cm/s₂ (first power). In the scattering plane the counter slit's
+  acceptance w/s₂ is already the σ_slit of the normalised kernel: every reflected photon passes the slit at some β, so
+  the integrated line area is conserved and only the peak height (∝ 1/σ) changes; a further 1/s₂² would count it
+  twice. The loss is out of the plane: the diffracted beam's vertical extent grows with s₂ and overfills the slit
+  height, so the captured fraction goes as 1/s₂. The collimator fixes the power reaching the crystal (independent of
+  s₁). Assumption, not fitted. "Smaller s₂: more counts, worse resolution" holds: at s₂ = 2 the peak is 1.4× the
+  reference despite σ = 0.264°.
 - **Direct beam** (`direct_rate`, the leak halo) `direct_beam_factor` = (r_ref/r)², r = 7 cm + s₁ + s₂: with no
   crystal the counter slit collects the diverging beam as from a point source at the tube. `direct_rate` is normalised at
   s₁ = s₂ = 5 cm (the anchor); the halo at the Bragg reference (5, 6). So the same beam at (5, 6) reads
