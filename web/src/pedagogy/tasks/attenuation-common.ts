@@ -1,7 +1,7 @@
 // Shared by the EPN Práctica 1 (attenuation) Lab tasks: the exposure log read as measurements, and the
 // expected rate of each exposure from the model (physics/scan.directRate), never the student's own numbers.
 import { SATURATION_OBSERVED_TAU, type ExposureRecord, type Holder } from '../../apparatus/apparatus'
-import { DEFAULT, directRate } from '../../physics/scan'
+import { DEFAULT, DIRECT_REF_S1_CM, DIRECT_REF_S2_CM, directRate } from '../../physics/scan'
 import { FOILS_MG_CM2, WHEELS_MG_CM2 } from '../../physics/tables'
 
 /** Poisson variance of a mean rate over dt seconds, as braggsim.analysis (at least one count). */
@@ -15,7 +15,7 @@ export function expectedOf(r: ExposureRecord): number | undefined {
   const plate = r.slot === null ? null : table[r.slot]
   const filters: [string, number][] = names.map((n) => [n, FOILS_MG_CM2[n]])
   if (plate) filters.push([plate[0], plate[1]])
-  return directRate(r.u / 10, r.i / 100, filters, DEFAULT, r.sensorTrue / 10)
+  return directRate(r.u / 10, r.i / 100, filters, DEFAULT, r.sensorTrue / 10, r.s1Cm ?? DIRECT_REF_S1_CM, r.s2Cm ?? DIRECT_REF_S2_CM)
 }
 
 export const isSaturated = (rate: number) => rate * DEFAULT.tau_s > SATURATION_OBSERVED_TAU

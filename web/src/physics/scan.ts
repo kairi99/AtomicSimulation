@@ -89,6 +89,55 @@ export function modelParams(
 
 export const DEFAULT = modelParams(DEFAULT_PARAMS_JSON)
 
+// Goniometer geometry, port of the braggsim.scan constants (model/PARAMETERS.md "Geometry: s₁ and s₂").
+export const REF_S1_CM = 5.0
+export const REF_S2_CM = 6.0
+export const DIRECT_REF_S1_CM = 5.0
+export const DIRECT_REF_S2_CM = 5.0
+export const COLLIMATOR_WIDTH_MM = 0.2
+export const COUNTER_SLIT_WIDTH_MM = 0.3
+export const SOURCE_TO_COLLIMATOR_CM = 7.0
+
+function checkGeometry(s1Cm: number, s2Cm: number): void {
+  if (!(Number.isFinite(s1Cm) && Number.isFinite(s2Cm) && s1Cm > 0 && s2Cm > 0)) throw new RangeError('s1_cm and s2_cm must be finite and > 0')
+}
+
+const slitSigmaSqDeg2 = (widthMm: number, distanceCm: number): number => ((widthMm / (10 * distanceCm) / Math.sqrt(12)) * (180 / Math.PI)) ** 2
+
+/** port of braggsim.scan.angular_sigma_deg: σ(s₁, s₂) in degrees, the fitted `params.sigma_deg` at (REF_S1_CM, REF_S2_CM). */
+export function angularSigmaDeg(s1Cm: number = REF_S1_CM, s2Cm: number = REF_S2_CM, params: ModelParams = DEFAULT): number {
+  checkGeometry(s1Cm, s2Cm)
+  if (s1Cm === REF_S1_CM && s2Cm === REF_S2_CM) return params.sigma_deg
+  const ref = slitSigmaSqDeg2(COLLIMATOR_WIDTH_MM, REF_S1_CM) + slitSigmaSqDeg2(COUNTER_SLIT_WIDTH_MM, REF_S2_CM)
+  const resSq = params.sigma_deg ** 2 - ref
+  if (resSq < 0) throw new RangeError('sigma_deg is below the geometric resolution at the reference slits')
+  return Math.sqrt(resSq + slitSigmaSqDeg2(COLLIMATOR_WIDTH_MM, s1Cm) + slitSigmaSqDeg2(COUNTER_SLIT_WIDTH_MM, s2Cm))
+}
+
+/** port of braggsim.scan.direct_beam_factor: (r_ref/r)², r = SOURCE_TO_COLLIMATOR_CM + s₁ + s₂. */
+export function directBeamFactor(s1Cm: number, s2Cm: number, refS1Cm: number = REF_S1_CM, refS2Cm: number = REF_S2_CM): number {
+  checkGeometry(s1Cm, s2Cm)
+  return ((SOURCE_TO_COLLIMATOR_CM + refS1Cm + refS2Cm) / (SOURCE_TO_COLLIMATOR_CM + s1Cm + s2Cm)) ** 2
+}
+
+/** port of braggsim.scan.crystal_factor: s₂_ref/s₂, the Bragg signal and scatter. */
+export function crystalFactor(s2Cm: number, refS2Cm: number = REF_S2_CM): number {
+  checkGeometry(REF_S1_CM, s2Cm)
+  return refS2Cm / s2Cm
+}
+
+// params with σ replaced, memoised per (params, σ) so the tube cache (keyed by params identity) keeps working.
+const sigmaParams = new WeakMap<ModelParams, { sigma: number; out: ModelParams }>()
+function withSigma(params: ModelParams, sigma: number): ModelParams {
+  if (sigma === params.sigma_deg) return params
+  if (!validated.has(params)) throw new TypeError('params must come from modelParams()')
+  const hit = sigmaParams.get(params)
+  if (hit && hit.sigma === sigma) return hit.out
+  const out = modelParams({ ...params, sigma_deg: sigma })
+  sigmaParams.set(params, { sigma, out })
+  return out
+}
+
 /** port of braggsim.scan.max_order: highest order that reaches the counter, n λ_min(U) ≤ 2d sin 85°. */
 export function maxOrder(crystal: Crystal = NACL, UkV: number = U_MAX_KV): number {
   return maxOrderForD(dPm(crystal), UkV)
@@ -249,7 +298,7 @@ export function checkTube(UkV: number, ImA: number): void {
 
 /** port of braggsim.scan.expected_rate: expected observed rate R̄ in counts/s (deterministic).
  * `betaDeg`: target angles; `sensorDeg`: sensor angles, same length, or null/undefined for the 2:1
- * coupled scan (sensor at 2β). Throws on the same invalid inputs as Python. A crystal turned half a
+ * coupled scan (sensor at 2β). `s1Cm`, `s2Cm`: collimator and counter distances (σ, Bragg signal, halo, scatter). Throws on the same invalid inputs as Python. A crystal turned half a
  * turn (β = S/2 + 180°) reflects nothing: its holder blocks the beam. `filters`: absorbers in the beam. `crystal`: default NaCl; the others need loadCrystals(). */
 export function expectedRate(
   betaDeg: ArrayLike<number>,
@@ -259,7 +308,13 @@ export function expectedRate(
   sensorDeg?: ArrayLike<number> | null,
   filters: Filters = [],
   crystal: Crystal = NACL,
+  s1Cm: number = REF_S1_CM,
+  s2Cm: number = REF_S2_CM,
 ): Float64Array {
+  checkGeometry(s1Cm, s2Cm)
+  params = withSigma(params, angularSigmaDeg(s1Cm, s2Cm, params))
+  const gain = crystalFactor(s2Cm)
+  const halo = directBeamFactor(s1Cm, s2Cm)
   const beta = Float64Array.from(betaDeg)
   let sensor: Float64Array
   if (sensorDeg == null) {
@@ -284,13 +339,13 @@ export function expectedRate(
     const s = sensor[i]
     let rate =
       params.background_per_s +
-      t.tube * (params.scatter_per_s + params.leak_amp_per_s * Math.exp(-0.5 * (s / params.leak_width_deg) ** 2))
+      t.tube * (params.scatter_per_s * gain + halo * params.leak_amp_per_s * Math.exp(-0.5 * (s / params.leak_width_deg) ** 2))
     if (on) {
       const theta = Math.abs(s) / 2
       const rocking = Math.exp(-0.5 * ((s / 2 - beta[i]) / params.sigma_deg) ** 2)
       let lines = 0
       for (const l of t.lines) lines += l.weight * gaussian(theta - l.theta, params.sigma_deg)
-      rate = rate + params.scale * rocking * (interp(theta, t.thetaGrid, t.smoothed) + lines)
+      rate = rate + gain * params.scale * rocking * (interp(theta, t.thetaGrid, t.smoothed) + lines)
     }
     out[i] = deadTime(rate, params.tau_s)
   }
@@ -299,11 +354,12 @@ export function expectedRate(
 
 /** port of braggsim.scan.direct_rate: observed rate in counts/s with the counter in the direct beam
  * (no crystal, sensor at `sensorDeg`; EPN Práctica 1). Wheel absorbers and Moseley foils are both `filters`. */
-export function directRate(UkV: number, ImA: number, filters: Filters = [], params: ModelParams = DEFAULT, sensorDeg = 0): number {
+export function directRate(UkV: number, ImA: number, filters: Filters = [], params: ModelParams = DEFAULT, sensorDeg = 0, s1Cm: number = DIRECT_REF_S1_CM, s2Cm: number = DIRECT_REF_S2_CM): number {
+  checkGeometry(s1Cm, s2Cm)
   if (!(sensorDeg >= SENSOR_MIN_DEG && sensorDeg <= SENSOR_MAX_DEG)) throw new RangeError(`sensor outside its range ${SENSOR_MIN_DEG}° … ${SENSOR_MAX_DEG}°`)
   checkTube(UkV, ImA)
   checkFilters(filters)
   if (!validated.has(params)) throw new TypeError('params must come from modelParams()')
   const profile = Math.exp(-0.5 * (sensorDeg / params.leak_width_deg) ** 2)
-  return deadTime(params.direct_per_s * tubeFactor(UkV, ImA, params, filters) * profile + params.background_per_s, params.tau_s)
+  return deadTime(params.direct_per_s * directBeamFactor(s1Cm, s2Cm, DIRECT_REF_S1_CM, DIRECT_REF_S2_CM) * tubeFactor(UkV, ImA, params, filters) * profile + params.background_per_s, params.tau_s)
 }

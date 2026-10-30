@@ -83,6 +83,8 @@ def _rate_case(
     sensor_deg=None,
     filters=(),
     crystal=NACL,
+    s1_cm=scan.REF_S1_CM,
+    s2_cm=scan.REF_S2_CM,
 ):
     beta = np.asarray(beta_deg, dtype=float)
     inputs = {"beta_deg": _floats(beta), "U_kV": U_kV, "I_mA": I_mA,
@@ -92,25 +94,36 @@ def _rate_case(
         inputs["sensor_deg"] = _floats(sensor_deg)
     if filters:
         inputs["filters"] = [[m, d] for m, d in filters]
+    if (s1_cm, s2_cm) != (scan.REF_S1_CM, scan.REF_S2_CM):  # older fixtures stay as they were
+        inputs["s1_cm"], inputs["s2_cm"] = s1_cm, s2_cm
     return {
         "function": "scan.expected_rate",
         "description": description,
         "inputs": inputs,
         "expected": {
             "rate_per_s": _floats(
-                scan.expected_rate(beta, U_kV, I_mA, params, sensor_deg, filters, crystal)
+                scan.expected_rate(
+                    beta, U_kV, I_mA, params, sensor_deg, filters, crystal, s1_cm, s2_cm
+                )
             )
         },
     }
 
 
-def _direct_case(description, U_kV, I_mA, filters=(), sensor_deg=0.0):
+def _direct_case(description, U_kV, I_mA, filters=(), sensor_deg=0.0, geometry_cm=None):
+    inputs = {"U_kV": U_kV, "I_mA": I_mA, "filters": [[m, d] for m, d in filters],
+              "sensor_deg": sensor_deg, "params": dataclasses.asdict(scan.DEFAULT)}  # fmt: skip
+    geo = {}
+    if geometry_cm is not None:  # older fixtures stay as they were
+        geo = {"s1_cm": geometry_cm[0], "s2_cm": geometry_cm[1]}
+        inputs.update(geo)
     return {
         "description": description,
-        "inputs": {"U_kV": U_kV, "I_mA": I_mA, "filters": [[m, d] for m, d in filters],
-                   "sensor_deg": sensor_deg, "params": dataclasses.asdict(scan.DEFAULT)},
-        "expected": {"rate_per_s": scan.direct_rate(U_kV, I_mA, filters, sensor_deg=sensor_deg)},
-    }  # fmt: skip
+        "inputs": inputs,
+        "expected": {
+            "rate_per_s": scan.direct_rate(U_kV, I_mA, filters, sensor_deg=sensor_deg, **geo)
+        },
+    }
 
 
 def _transmission_case():
@@ -171,6 +184,9 @@ def _rejected_case():
             {"beta_deg": [7.2], **tube, "filters": [("Ni", 1.0)]},
         ),
         ("direct_rate", "U above 35 kV (direct beam)", {"U_kV": 35 + 1e-9, "I_mA": 1.0}),
+        (rate, "s2 = 0", {"beta_deg": [7.2], **tube, "s2_cm": 0.0}),
+        (rate, "s1 negative", {"beta_deg": [7.2], **tube, "s1_cm": -1.0}),
+        ("direct_rate", "s1 = 0 (direct beam)", {"U_kV": 21.0, "I_mA": 0.05, "s1_cm": 0.0}),
         (betas, "upper limit below lower", {"lo_deg": 25.0, "hi_deg": 2.0, "step_deg": 0.1}),
         (betas, "Δβ = 0", {"lo_deg": 2.0, "hi_deg": 25.0, "step_deg": 0.0}),
         (betas, "too many steps", {"lo_deg": -5.0, "hi_deg": 85.0, "step_deg": 1e-4}),
@@ -884,6 +900,12 @@ def _fixtures():
                 _direct_case("Tube off: natural background only", 0.0, 0.05),
                 _direct_case("Off-axis 1.5° (Gaussian profile, leak width)", 21.0, 0.05, (), 1.5),
                 _direct_case("Off-axis 3°", 21.0, 0.05, (), 3.0),
+                _direct_case(
+                    "Counters at 2 cm and 2 cm (inverse square)", 21.0, 0.05, (), 0.0, (2.0, 2.0)
+                ),
+                _direct_case(
+                    "Bragg geometry 5 cm / 6 cm, off-axis 1.5°", 21.0, 0.05, (), 1.5, (5.0, 6.0)
+                ),
             ],
         },
         "tube_off_I0": _rate_case(
@@ -891,6 +913,31 @@ def _fixtures():
         ),
         "tube_off_U0": _rate_case(
             "Tube voltage 0: natural background only", LEAFLET_BETAS, 0.0, 1.0
+        ),
+        "geometry_counter_close": _rate_case(
+            "s1 = 5 cm, s2 = 2 cm: broader (σ 0.26°) and stronger lines",
+            LEAFLET_BETAS,
+            35.0,
+            1.0,
+            s2_cm=2.0,
+        ),
+        "geometry_far_collimator_far_counter": _rate_case(
+            "s1 = 8 cm, s2 = 12 cm: sharper and weaker; sensor/target uncoupled by 0.1°",
+            scan.coupled_betas(2.0, 25.0, 0.1),
+            30.0,
+            0.5,
+            sensor_deg=2 * scan.coupled_betas(2.0, 25.0, 0.1) + 0.1,
+            s1_cm=8.0,
+            s2_cm=12.0,
+        ),
+        "geometry_zr_filter_near": _rate_case(
+            "s1 = 3 cm, s2 = 4.5 cm with a Zr foil",
+            LEAFLET_BETAS,
+            35.0,
+            1.0,
+            filters=(("Zr", 32.6),),
+            s1_cm=3.0,
+            s2_cm=4.5,
         ),
         "sigma_narrow": _rate_case(
             "Sharper resolution σ = 0.05° (short convolution kernel)",

@@ -163,6 +163,60 @@
     },
     "sensor_deg": 3.0
    }
+  },
+  {
+   "description": "Counters at 2 cm and 2 cm (inverse square)",
+   "expected": {
+    "rate_per_s": 2004.641684435308
+   },
+   "inputs": {
+    "I_mA": 0.05,
+    "U_kV": 21.0,
+    "filters": [],
+    "params": {
+     "absorber_mg_cm2": 326.0,
+     "background_per_s": 0.2,
+     "debye_waller_pm2": 6260.0,
+     "direct_per_s": 297000.0,
+     "leak_amp_per_s": 118000.0,
+     "leak_width_deg": 1.161,
+     "line_to_cont": 0.00743,
+     "scale": 167600.0,
+     "scatter_per_s": 5.34,
+     "sigma_deg": 0.1228,
+     "tau_s": 0.0001
+    },
+    "s1_cm": 2.0,
+    "s2_cm": 2.0,
+    "sensor_deg": 0.0
+   }
+  },
+  {
+   "description": "Bragg geometry 5 cm / 6 cm, off-axis 1.5°",
+   "expected": {
+    "rate_per_s": 390.696796258884
+   },
+   "inputs": {
+    "I_mA": 0.05,
+    "U_kV": 21.0,
+    "filters": [],
+    "params": {
+     "absorber_mg_cm2": 326.0,
+     "background_per_s": 0.2,
+     "debye_waller_pm2": 6260.0,
+     "direct_per_s": 297000.0,
+     "leak_amp_per_s": 118000.0,
+     "leak_width_deg": 1.161,
+     "line_to_cont": 0.00743,
+     "scale": 167600.0,
+     "scatter_per_s": 5.34,
+     "sigma_deg": 0.1228,
+     "tau_s": 0.0001
+    },
+    "s1_cm": 5.0,
+    "s2_cm": 6.0,
+    "sensor_deg": 1.5
+   }
   }
  ],
  "description": "EPN Práctica 1: counter in the direct beam, no crystal, with absorbers",
