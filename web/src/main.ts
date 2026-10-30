@@ -115,7 +115,8 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
   forge?.redraw()
 })
 
-const apparatus = new Apparatus()
+// A new session draws its hidden goniometer zero offsets (apparatus/apparatus.ts); ?teacher starts aligned, like the demos.
+const apparatus = new Apparatus(undefined, undefined, new URLSearchParams(location.search).has('teacher') ? null : Math.floor(Math.random() * 2 ** 32))
 // The bench is assembled by the student before an experiment runs (apparatus/assembly.ts). `bench` hooks are the
 // contract with the 3D bench: it reads hooks.assembly and assigns hooks.resolveZone (see BenchAssemblyHooks).
 // Gating: until the assembly is done, the panel/monitor/chamber cards and the Learn tasks refuse with a hint; the
@@ -290,6 +291,7 @@ function finishForTeacher() {
   // the absorber tables must be in before the Apparatus can mount a wheel or a filter
   const go = () => {
     asm().autoComplete() // mounts the setup and closes the door through syncApparatus
+    apparatus.alignZero() // the teacher's bench starts calibrated
     apparatus.press('ZERO') // the last step, done for the teacher
   }
   if (asm().experiment === 'attenuation' && !absorbersLoaded()) void loadAbsorbers().then(go, () => showToast(at().loadFailed))
@@ -345,7 +347,12 @@ function syncApparatus() {
 // tray) is adopted by the assembly, so its tray, swap rules and 3D parts follow.
 let seenSetup = apparatus.setup
 let seenZero = apparatus.zeroPresses
+let seenCalib = apparatus.calibrations
 function followApparatus() {
+  if (apparatus.calibrations !== seenCalib) {
+    seenCalib = apparatus.calibrations
+    showToast(t().alertCalibrated)
+  }
   if (apparatus.zeroPresses !== seenZero) {
     seenZero = apparatus.zeroPresses
     asm().notifyZero()

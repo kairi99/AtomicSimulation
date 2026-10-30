@@ -15,7 +15,7 @@ export function expectedOf(r: ExposureRecord): number | undefined {
   const plate = r.slot === null ? null : table[r.slot]
   const filters: [string, number][] = names.map((n) => [n, FOILS_MG_CM2[n]])
   if (plate) filters.push([plate[0], plate[1]])
-  return directRate(r.u / 10, r.i / 100, filters, DEFAULT, r.sensor / 10)
+  return directRate(r.u / 10, r.i / 100, filters, DEFAULT, r.sensorTrue / 10)
 }
 
 export const isSaturated = (rate: number) => rate * DEFAULT.tau_s > SATURATION_OBSERVED_TAU

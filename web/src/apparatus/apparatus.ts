@@ -4,8 +4,9 @@
 // Settings are integers in device steps (U in 0.1 kV, I in 0.01 mA, angles in 0.1°) and become floats
 // only when the physics is called: 100 × 0.01 mA summed in floats is 1.0000000000000007 mA > 1 mA.
 import { mulberry32, poisson, type Rng } from '../physics/detector'
-import { BETA_MAX_DEG, BETA_MIN_DEG, DEFAULT, directRate, expectedRate, type ModelParams } from '../physics/scan'
-import { crystalByName, type Crystal } from '../physics/crystal'
+import { BETA_MAX_DEG, BETA_MIN_DEG, DEFAULT, SENSOR_MAX_DEG, SENSOR_MIN_DEG, directRate, expectedRate, type ModelParams } from '../physics/scan'
+import { MO_KA_PM } from '../physics/constants'
+import { crystalByName, dPm, thetaFromLambda, type Crystal } from '../physics/crystal'
 import { mcaSpectrum } from '../physics/fluorescence'
 import { FOILS_MG_CM2, WHEELS_MG_CM2, XRF, absorbersLoaded, foilOf } from '../physics/tables'
 import { Mca } from './mca'
@@ -50,6 +51,43 @@ const ARM_RANGE: Record<Mode, readonly [number, number]> = {
 // upgraded to a Python profile if L2 needs it. A target turned ≈180° is treated as blocked, though a real
 // plate might put an absorber on the tube side.
 export const WHEEL_WINDOW_DEG = 3 // target within ±3° of a slot centre: the slot is in the beam
+// Hidden zero offsets of the goniometer (the guide's "calibration", LD P7.1.2.1): the arms' mechanical zero is not exactly
+// where the panel reads 0.0°. Emulator assumptions, not in the manual: the target arm is off by 0.1–0.4° and the sensor by
+// 0.2–0.8° (in the sensor's own angle 2θ), each with a random sign, per session and per mounted crystal. The rocking Gaussian is
+// σ = 0.12° wide, so the target error (≈1–3σ) visibly costs rate at the Kα maximum and the sensor error shifts the peak by
+// 0.1–0.4° in θ, yet both stay small enough that a careful student finds the maximum within a degree of the expected angle.
+export const ZERO_OFFSET_TARGET_DEG = [0.1, 0.4] as const
+export const ZERO_OFFSET_SENSOR_DEG = [0.2, 0.8] as const
+/** TARGET, COUPLED and β LIMITS pressed within this window count as "held together" (the real gesture is a three-key hold). */
+export const CALIBRATION_WINDOW_MS = 3000
+/** The calibration only stores a position that is at the first-order Kα maximum, within these reaches (0.1°): the target
+ * arm 1.5° and the sensor arm 3.0° of the expected angle. Farther away, the key combo is refused (simulation aid: on the
+ * real device it would store whatever the student left there). */
+export const CALIBRATION_REACH_TENTHS = { target: 15, sensor: 30 } as const
+/** Residual zero error (0.1°) a measurement still tolerates after the student calibrated by hand: target 0.3°, sensor 0.6°. */
+export const ZERO_TOLERANCE_TENTHS = { target: 3, sensor: 6 } as const
+/** A hidden zero error in 0.1° (fractional): true arm angle = panel reading + offset. */
+export type ZeroOffset = Readonly<{ target: number; sensor: number }>
+
+/** The zero error of a scan (or the mounted goniometer) is small enough that its measured angles are the true ones within the
+ * tolerance; a missing record counts as aligned. Success checks use this: an uncalibrated scan does not count. */
+export const zeroOk = (z: ZeroOffset | undefined): boolean =>
+  z === undefined || (Math.abs(z.target) <= ZERO_TOLERANCE_TENTHS.target && Math.abs(z.sensor) <= ZERO_TOLERANCE_TENTHS.sensor)
+
+const hashName = (name: string): number => {
+  let h = 2166136261
+  for (let k = 0; k < name.length; k++) h = Math.imul(h ^ name.charCodeAt(k), 16777619)
+  return h >>> 0
+}
+/** The offsets (0.1°) drawn for one crystal mount from a session seed: deterministic in (seed, crystal), magnitudes uniform in the
+ * ranges above, random signs. */
+export function drawZeroOffset(seed: number, crystal: string): ZeroOffset {
+  const r = mulberry32((seed ^ hashName(crystal)) >>> 0)
+  r() // the first draw of mulberry32 is correlated with small seeds
+  const one = ([lo, hi]: readonly [number, number]) => (r() < 0.5 ? -1 : 1) * (lo + (hi - lo) * r()) * 10
+  return { target: one(ZERO_OFFSET_TARGET_DEG), sensor: one(ZERO_OFFSET_SENSOR_DEG) }
+}
+
 const COUNTER_MAX_PER_S = 65_535 // internal rate limit (§4)
 const DISPLAY_MAX = 9999 // 4-digit display
 
@@ -93,7 +131,8 @@ export type ReplayPoint = { angle: number; rate: number } // angle in 0.1°, mea
  * student doing a series of exposures would otherwise have to note the setup of each by hand. */
 export type ExposureRecord = Readonly<{
   target: number // 0.1°, wrapped
-  sensor: number // 0.1°
+  sensor: number // 0.1°, the reading
+  sensorTrue: number // 0.1°, what the physics saw (reading + hidden zero offset); the expected rate uses this
   slot: number | null // absorber-plate slot in the beam (see wheelSlot), null: frame or no plate
   mode: Mode | null // the arm selected when the exposure ran (null: none, e.g. a background run)
   setup: Setup
@@ -147,7 +186,8 @@ export type Display = {
   alert: Alert | null // why the last SCAN/HV was refused; the view explains it (simulation aid)
 }
 /** `detector`: the energy detector is on the sensor arm, which is locked at 90° (and must be there to mount it). */
-export type Alert = 'mode' | 'limits' | 'doors' | 'detector' | 'detectorReset'
+/** `calibrated` / `calibFar`: the zero-calibration key combo stored the zero / was refused (the arms are not at the Kα maximum). */
+export type Alert = 'mode' | 'limits' | 'doors' | 'detector' | 'detectorReset' | 'calibrated' | 'calibFar'
 
 type Program = {
   steps: number[] // scan-arm angles in 0.1° (one entry for the exposure timer)
@@ -202,7 +242,7 @@ export class Apparatus {
   /** The auto-scan that filled `replay`: its arm, limits in 0.1°, and U, I, Δt at its start in device
    * steps (null after an exposure). `changed`: U or I differed from those while it counted (the device
    * allows it). */
-  lastScan: { mode: Mode; first: number; last: number; u: number; i: number; dt: number; changed: boolean; setup: Setup } | null = null
+  lastScan: { mode: Mode; first: number; last: number; u: number; i: number; dt: number; changed: boolean; setup: Setup; zero?: ZeroOffset } | null = null
   /** Counts in the last whole simulated second; the rate display and speaker clicks use it. */
   lastSecondCounts = 0
   secondsCounted = 0 // increments with every whole simulated second
@@ -212,10 +252,82 @@ export class Apparatus {
 
   private rng: Rng
   private params: ModelParams
+  // Hidden zero offsets, per crystal (the session's calibration state). null seed: perfectly aligned goniometer (tests, teacher).
+  private zeroSeed: number | null
+  private zeroByCrystal = new Map<string, ZeroOffset>()
+  private comboAt = new Map<Key, number>()
+  /** Wall clock (ms) of the key-combo window; replaceable in tests. */
+  nowMs: () => number = () => Date.now()
+  /** How many times the calibration combo stored a zero (accepted). */
+  calibrations = 0
 
-  constructor(rng: Rng = mulberry32(Date.now()), params: ModelParams = DEFAULT) {
+  /** `zeroSeed`: seed of this session's hidden zero offsets (see ZERO_OFFSET_*); null (default) is a perfectly aligned goniometer. */
+  constructor(rng: Rng = mulberry32(Date.now()), params: ModelParams = DEFAULT, zeroSeed: number | null = null) {
     this.rng = rng
     this.params = params
+    this.zeroSeed = zeroSeed
+  }
+
+  /** The hidden zero error of the mounted crystal's goniometer, in 0.1° (true angle = reading + offset). For physics and success checks, never shown. */
+  get zeroOffset(): ZeroOffset {
+    // Without a crystal there is no Kα maximum to calibrate on (the attenuation guide skips calibration), so the
+    // goniometer counts as aligned: an uncorrectable sensor error would only bias the direct-beam rate.
+    if (this._setup.holder !== 'crystal') return { target: 0, sensor: 0 }
+    const name = this._setup.crystal
+    let z = this.zeroByCrystal.get(name)
+    if (!z) {
+      z = this.zeroSeed === null ? { target: 0, sensor: 0 } : drawZeroOffset(this.zeroSeed, name)
+      this.zeroByCrystal.set(name, z)
+    }
+    return z
+  }
+
+  /** Target arm angle the physics sees, in 0.1° (reading + hidden offset). */
+  get trueTarget(): number {
+    return this.target + this.zeroOffset.target
+  }
+
+  /** Sensor arm angle the physics sees, in 0.1° (reading + hidden offset), kept inside the model's sensor range. */
+  get trueSensor(): number {
+    return clamp(this.sensor + this.zeroOffset.sensor, SENSOR_MIN_DEG * 10, SENSOR_MAX_DEG * 10)
+  }
+
+  /** Teacher shortcut: the goniometer is aligned from now on (offsets 0 for every crystal). */
+  alignZero(): void {
+    this.zeroSeed = null
+    this.zeroByCrystal.clear()
+  }
+
+  /** Whether the readings are within the tolerance of the true angles (the student calibrated, or the teacher aligned it). */
+  get zeroCalibrated(): boolean {
+    return zeroOk(this.zeroOffset)
+  }
+
+  /** The calibration key combo (TARGET + COUPLED + β LIMITS, LD P7.1.2.1): the arms stand at the first-order Kα maximum of the
+   * mounted crystal, so the device stores the positions as the expected angles θ₁ and 2θ₁: the readings become those angles and the
+   * hidden offsets whatever the student's maximum search left over. Refused (false, alert `calibFar`) when no crystal is in, the
+   * motor runs, or the arms are not within CALIBRATION_REACH_TENTHS of the maximum. */
+  calibrate(): boolean {
+    if (this.busy || this.energy) return false
+    const crystal = this.crystal
+    const th = 10 * thetaFromLambda(MO_KA_PM, 1, dPm(crystal))
+    const dt = wrapTarget(this.trueTarget) - th
+    const ds = this.trueSensor - 2 * th
+    if (this._setup.holder !== 'crystal' || this.moving || Math.abs(dt) > CALIBRATION_REACH_TENTHS.target || Math.abs(ds) > CALIBRATION_REACH_TENTHS.sensor) {
+      this.alert = 'calibFar'
+      return false
+    }
+    const target = Math.round(th)
+    const sensor = 2 * target // COUPLED keeps the sensor at exactly twice the target on the display
+    // the true arm angles do not move: reading + offset stays, so the offset absorbs the change of the reading
+    const next: ZeroOffset = { target: wrapTarget(this.trueTarget) - target, sensor: this.trueSensor - sensor }
+    this.zeroByCrystal.set(this._setup.crystal, next)
+    this.target = target
+    this.sensor = sensor
+    this.coupleRef = { target, sensor }
+    this.calibrations++
+    this.alert = 'calibrated'
+    return true
   }
 
   get busy(): boolean {
@@ -288,7 +400,8 @@ export class Apparatus {
   /** Expected rate R̄ at the current arm positions, in counts/s. With HV off the counter still sees the
    * natural GM background. */
   expectedRate(): number {
-    const { u, i, sensor, target, params } = this
+    const { u, i, params } = this
+    const [target, sensor] = [this.trueTarget, this.trueSensor] // the physics sees the true angles
     if (this._setup.detector === 'energy') return 0 // no GM plugged in: the rate display idles
     if (!this.hvOn) return directRate(0, 0, [], params)
     if (this._setup.holder === 'crystal') return expectedRate([target / 10], u / 10, i / 100, params, [sensor / 10], this.foils(), this.crystal)[0]
@@ -308,7 +421,7 @@ export class Apparatus {
   /** Expected rate a counter at the specular angle 2β would see, in counts/s: the reflected beam the
    * goniometer view draws. 0 with HV off, without the crystal, and where 2β lies outside the sensor range. */
   specularRate(): number {
-    const beta = wrapTarget(this.target) / 10
+    const beta = wrapTarget(this.trueTarget) / 10
     if (!this.hvOn || this._setup.holder !== 'crystal' || beta < BETA_MIN_DEG || beta > BETA_MAX_DEG) return 0
     return expectedRate([beta], this.u / 10, this.i / 100, this.params, undefined, this.foils(), this.crystal)[0]
   }
@@ -350,11 +463,25 @@ export class Apparatus {
 
   /** The wheel slot in the beam (null = open slot), or undefined when the wheel frame blocks it. */
   private wheelSlot(): readonly [string, number] | null | undefined {
-    const k = wheelSlot(this._setup.holder, this.target)
+    const k = wheelSlot(this._setup.holder, this.trueTarget)
     return k === null ? undefined : WHEELS_MG_CM2[this._setup.holder === 'alWheel' ? 'al' : 'material'][k]
   }
 
+  /** A panel key. TARGET, COUPLED and β LIMITS pressed together (within CALIBRATION_WINDOW_MS, in any order) store the zero (calibrate()). */
   press(key: Key): void {
+    this.pressKey(key)
+    if (key !== 'TARGET' && key !== 'COUPLED' && key !== 'LIMITS') return void this.comboAt.clear()
+    if (this.busy || this.energy) return
+    const now = this.nowMs()
+    this.comboAt.set(key, now)
+    const times = (['TARGET', 'COUPLED', 'LIMITS'] as const).map((k) => this.comboAt.get(k))
+    if (times.every((t) => t !== undefined && now - t <= CALIBRATION_WINDOW_MS)) {
+      this.comboAt.clear()
+      this.calibrate()
+    }
+  }
+
+  private pressKey(key: Key): void {
     this.alert = null
     this.exposureDone = false
     if (key !== 'REPLAY') this.replayIndex = null
@@ -409,6 +536,10 @@ export class Apparatus {
           mcaRun: this.mcaRun,
           mca: this.mca, // a separate device: the panel's RESET does not touch it
           zeroPresses: this.zeroPresses,
+          zeroSeed: this.zeroSeed,
+          zeroByCrystal: this.zeroByCrystal,
+          nowMs: this.nowMs,
+          calibrations: this.calibrations,
           path: this.target === 0 && this.sensor === (this.energy ? ENERGY_SENSOR : 0) ? [] : [{ target: 0, sensor: this.energy ? ENERGY_SENSOR : 0 }],
         })
         if (this.energy) this.alert = 'detectorReset' // the real RESET would drive the detector into the collimator
@@ -645,7 +776,7 @@ export class Apparatus {
     const first = clamp(this.limitLo, lo, hi)
     const last = clamp(this.limitHi, lo, hi)
     const n = Math.floor((last - first) / this.dBeta) + 1
-    this.lastScan = { mode, first, last, u: this.u, i: this.i, dt: this.dt, changed: false, setup: this._setup }
+    this.lastScan = { mode, first, last, u: this.u, i: this.i, dt: this.dt, changed: false, setup: this._setup, zero: this.zeroOffset }
     this.path = [{ target: 0, sensor: 0 }]
     this.coupleRef = { target: 0, sensor: 0 } // auto-scan couples to the zero of the measuring system
     this.phase = 'positioning'
@@ -754,7 +885,7 @@ export class Apparatus {
       this._exposures = [
         ...this._exposures,
         Object.freeze({
-          target: wrapTarget(this.target), sensor: this.sensor, slot: wheelSlot(holder, this.target), mode: this.mode,
+          target: wrapTarget(this.target), sensor: this.sensor, slot: wheelSlot(holder, this.trueTarget), sensorTrue: this.trueSensor, mode: this.mode,
           setup: this._setup, u: x.u, i: x.i, dt: this.dt, rate: point.rate, changed: x.changed,
         }),
       ]

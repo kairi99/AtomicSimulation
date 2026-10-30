@@ -98,6 +98,7 @@ export function mountPanel(root: HTMLElement, a: Apparatus, onDetent: () => void
   )
   // Arrow keys turn ADJUST while the focus is in the panel (not on the page's other controls).
   root.addEventListener('keydown', (e) => {
+    if (e.shiftKey && e.key.toLowerCase() === 'z' && !e.repeat) return void (e.preventDefault(), a.calibrate()) // keyboard form of TARGET + COUPLED + β LIMITS
     const dir = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1 }[e.key]
     if (dir === undefined) return
     e.preventDefault()
@@ -165,7 +166,7 @@ export function mountPanel(root: HTMLElement, a: Apparatus, onDetent: () => void
     setText(q('[data-sym]'), d.symbol === 'lower' ? '▼' : d.symbol === 'upper' ? '▲' : d.symbol === 'exposure' ? '⧗' : '')
     setAttr(q('[data-sym]'), 'title', d.symbol ? s[({ lower: 'symLower', upper: 'symUpper', exposure: 'symExposure' } as const)[d.symbol]] : null)
     q('[data-top]').parentElement!.classList.toggle('blink', d.blinkTop)
-    setText(q('[data-alert]'), d.alert ? s[({ mode: 'alertMode', limits: 'alertLimits', doors: 'alertDoors', detector: 'alertDetector', detectorReset: 'alertDetectorReset' } as const)[d.alert]] : '')
+    setText(q('[data-alert]'), d.alert ? s[({ mode: 'alertMode', limits: 'alertLimits', doors: 'alertDoors', detector: 'alertDetector', detectorReset: 'alertDetectorReset', calibrated: 'alertCalibrated', calibFar: 'alertCalibFar' } as const)[d.alert]] : '')
     setText(q('[data-slot]'), windowLabel(a))
     setText(q('[data-saturated]'), a.saturated ? s.saturated : '')
     q('[data-group="groupMode"]').classList.toggle('alert', d.alert === 'mode') // the keys that are missing

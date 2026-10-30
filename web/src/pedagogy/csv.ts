@@ -1,5 +1,5 @@
 // Lab mode: the stored scan points as CSV, for the student's own analysis (LD P6.3.3.1 Tables 3–5).
-import { type Apparatus, type Mode, type ReplayPoint, type Setup, wrapTarget } from '../apparatus/apparatus'
+import { type Apparatus, type Mode, type ReplayPoint, type Setup, type ZeroOffset, wrapTarget } from '../apparatus/apparatus'
 import { crystalLabel, isForgeKey } from '../i18n'
 import { CRYSTALS, WHEELS_MG_CM2, WHEELS_MM } from '../physics/tables'
 
@@ -30,6 +30,7 @@ export type ExportRecord = {
   i: number // 0.01 mA
   dt: number // s
   changed: boolean // a setting changed during the scan
+  zero?: ZeroOffset // the goniometer's hidden zero error when the scan started (missing: aligned)
 }
 
 const records = new WeakMap<Apparatus, ExportRecord[]>()
@@ -147,11 +148,11 @@ export function markExported(a: Apparatus): void {
   const s = a.lastScan
   const r = a.replay
   if (!s || r.length === 0) return
-  const { setup, mode, u, i, dt, changed } = s
+  const { setup, mode, u, i, dt, changed, zero } = s
   // The angles actually stored, not the limits: a scan stopped early covers less than it was set to.
   const [first, last] = [r[0].angle, r.at(-1)!.angle]
   const step = r.length > 1 ? r[1].angle - r[0].angle : 0
-  records.set(a, [...exportedScans(a), { setup, mode, first, last, step, u, i, dt, changed }])
+  records.set(a, [...exportedScans(a), { setup, mode, first, last, step, u, i, dt, changed, zero }])
 }
 
 /** The stored values on show were exported whole (not while the scan was still adding points). */

@@ -14,7 +14,7 @@ export function windowLabel(a: Apparatus): string {
   const plate = plateOf(a.setup.holder)
   if (!plate) return ''
   const s = t()
-  const k = wheelSlot(a.setup.holder, a.target)
+  const k = wheelSlot(a.setup.holder, a.trueTarget)
   if (k === null) return s.slotFrame
   const slot = WHEELS_MM[plate][k]
   return slot ? s.slotWindow(materialName(slot[0]), mmText(slot[1])) : s.slotOpen

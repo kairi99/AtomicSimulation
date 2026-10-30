@@ -17,7 +17,7 @@ export const task: GuidedTask = {
   controls: ['COUPLED', 'HV'],
   initial: { U_kV: 35, I_mA: 1, mode: 'COUPLED' },
   predict: { kind: 'number', unit: '°' },
-  // HV on, crystal at rest on the step nearest the Bragg angle, counter coupled at 2θ.
+  // HV on, crystal at rest on the step nearest the Bragg angle, counter coupled at 2θ. (An intro task: it does not require the zero calibration.)
   success: (a) =>
-    a.setup.holder === 'crystal' && a.setup.crystal === 'NaCl' && a.hvOn && !a.moving && wrapTarget(a.target) === THETA_STEP && a.sensor === 2 * THETA_STEP,
+    a.setup.holder === 'crystal' && a.setup.crystal === 'NaCl' && a.hvOn && !a.moving && wrapTarget(a.target) === THETA_STEP && a.sensor === 2 * THETA_STEP ,
 }

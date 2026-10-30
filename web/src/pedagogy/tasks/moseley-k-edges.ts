@@ -1,7 +1,7 @@
 // Lab mode: find the K absorption edge of four foils (EPN Práctica 5, Moseley's law) from one open scan and
 // one scan per foil, each exported as CSV. Misconception: "higher Z (more energy) means a larger angle".
 // The app checks the scans, never the student's R∞ or σ_K (braggsim.analysis.k_edge_deg is the model).
-import type { Apparatus } from '../../apparatus/apparatus'
+import { zeroOk, type Apparatus } from '../../apparatus/apparatus'
 import { EDGE_SPLIT_HALF_WINDOW_DEG, MAX_EDGE_STEP_DEG, MIN_PROMINENCE_SIGMA } from '../../physics/analysis'
 import { HC_KEV_PM, K_EDGE_KEV } from '../../physics/constants'
 import { crystalByName, dPm, thetaFromLambda } from '../../physics/crystal'
@@ -39,7 +39,7 @@ function keyOf(r: ExportRecord): string | null {
 
 /** A coupled scan on the crystal, steady, fine enough and wide enough for an edge search on its crystal's d. */
 function usable(r: ExportRecord): boolean {
-  if (r.mode !== 'COUPLED' || r.changed || r.setup.holder !== 'crystal' || !CRYSTALS_OK.includes(r.setup.crystal)) return false
+  if (r.mode !== 'COUPLED' || r.changed || !zeroOk(r.zero) || r.setup.holder !== 'crystal' || !CRYSTALS_OK.includes(r.setup.crystal)) return false
   if (r.step <= 0 || r.step / 10 > MAX_EDGE_STEP_DEG) return false
   try {
     const [first, last] = windowOf(r.setup.crystal)
@@ -121,7 +121,7 @@ export const task: GuidedTask = {
   crystal: 'NaCl', // the default bench; the LiF variant needs the picker
   holder: 'crystal',
   crystalLocked: false,
-  controls: ['U', 'I', 'DT', 'DBETA', 'LIMITS', 'COUPLED', 'SCAN'],
+  controls: ['U', 'I', 'DT', 'DBETA', 'LIMITS', 'SENSOR', 'TARGET', 'COUPLED', 'ZERO', 'SCAN'],
   initial: { U_kV: 35, I_mA: 1, mode: 'COUPLED' },
   predict: { kind: 'choice', answer: 0 },
   // Exported coupled scans at one U and I (the same beam): an open scan and one per foil, each fine and wide
