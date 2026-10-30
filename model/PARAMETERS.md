@@ -453,7 +453,7 @@ Added 2026-10-14. No measurement behind any of them.
 |---|---|---|
 | Direct-beam profile (`scan.direct_rate` `sensor_deg`) | Gaussian, width = `leak_width_deg` | Without a crystal the counter sees the beam's angular profile; its width is assumed equal to the fitted leak halo |
 | `WHEEL_WINDOW_DEG` | 3° | A 554 834 slot is in the beam within ±3° of its centre; between slots the frame blocks it (background only). Binary window, to be confirmed by the lab staff |
-| `Apparatus.saturated` threshold | Rτ = 0.3 | Dead-time losses exceed 23 % and the dead-time model choice starts to matter. The guide's own P1 run 2a polystyrene reading (30 kV, 0.02 mA, 0.5 mm; true ≈ 3145/s, Rτ ≈ 0.31, 24 % loss) trips the warning: kept as a teaching point, not hidden |
+| `Apparatus.saturated` threshold | dead-time loss 1 − m/R = m·τ > 0.30 (R·τ > 0.43) | For a non-paralysable counter the lost fraction equals the observed m·τ. The warning fires when more than 30 % of the pulses are lost, i.e. when the dead-time model choice and the uncorrected rates start to dominate the evaluation. Changed 2026-10-30 from R·τ = 0.3 (23 % loss), which tripped at the guide's own settings (30 kV, 0.02 mA, open slot: ≈ 24 % loss in our model, whose rate is ≈ 1.33× the leaflet's tabulated 1841/s, i.e. ≈ 18 % there; the polystyrene 0.5 mm reading of P1 run 2a, 24 %, no longer trips either). Wording says what is lost, not that the counter is broken. Web-only UI threshold, no model value changes |
 
 ## Calibration-only (never used by the model)
 

@@ -75,7 +75,7 @@ export function mountAssemblyHud(root: HTMLElement, hooks: BenchAssemblyHooks, o
     const exp = asm.experiment
     const cur = asm.current()
     const done = asm.done()
-    const swaps = done && exp === 'attenuation'
+    const swaps = done
     const steps = asm.steps
       .map((st, i) => {
         const state = i < asm.index() ? 'done' : i === asm.index() ? 'current' : 'todo'
@@ -115,7 +115,7 @@ export function mountAssemblyHud(root: HTMLElement, hooks: BenchAssemblyHooks, o
     const kbd = `<details class="asm-kbd"${kbdOpen ? ' open' : ''}><summary data-focus-key="kbd">${s.kbdTitle}</summary>${trayBlock}</details>`
     const teacher = !done && opts.teacherShortcut() ? `<button class="about-link asm-teacher" data-teacher>${s.teacherAuto}</button>` : ''
     if (done) {
-      return `<div class="asm-complete" tabindex="-1" data-complete><strong>✓ ${s.completeTitle}</strong><span>${s.completeText}${swaps ? ' ' + s.completeSwap : ''}</span>
+      return `<div class="asm-complete" tabindex="-1" data-complete><strong>✓ ${s.completeTitle}</strong><span>${s.completeText}${swaps ? ' ' + (exp === 'bragg' ? s.completeSwapBragg : s.completeSwap) : ''}</span>
         <button class="tool" data-dismiss aria-label="${s.dismiss}">×</button></div>
         ${swaps ? `<details class="asm-swap"><summary>${s.swapTitle}</summary>${trayBlock}</details>` : ''}`
     }

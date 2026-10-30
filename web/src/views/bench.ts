@@ -363,7 +363,9 @@ export function mountBench(
   const crystalW = new THREE.Group()
   const crystal = box(2.6, 0.5, 2.4, M.crystal, 0, -0.25, 0) // top face through the axis, flat at 0°
   crystal.renderOrder = 2
-  crystalW.add(crystal)
+  const crystalLif = box(2.2, 0.45, 2, M.crystalLif, 0, -0.225, 0)
+  crystalLif.renderOrder = 2
+  crystalW.add(crystal, crystalLif)
   const stageW = new THREE.Group()
   const stageTable = new THREE.Group() // the target stage (grey block with its knob): its grab volume hangs here
   // The target HOLDER (black disc with its slots and curved groove) never leaves the brass block: always drawn, not a Part.
@@ -1007,6 +1009,7 @@ export function mountBench(
     g.add(buildHolderBox(M)) // the grey stage with its black knob, standing on the table
   })
   mkProp('naclCrystal', 0.3, 1.5, [3, 3, 3], (g) => g.add(box(2.6, 0.5, 2.4, M.crystal, 0, 0, 0)))
+  mkProp('lifCrystal', 0.25, 1.5, [3, 3, 3], (g) => g.add(box(2.2, 0.45, 2, M.crystalLif, 0, 0, 0)))
   const stripProp = (key: string, kind: number[]) => (g: THREE.Group) => {
     const strip = buildStrip(M, key, kind, WHEEL_WINDOW_DEG)
     strip.rotation.z = -60 * RAD // lying on its curve, the windows facing up
@@ -1109,10 +1112,12 @@ export function mountBench(
     stageW.visible = As.mounted('targetStage')
     const s_ = a.setup
     const holder: Setup['holder'] = assembling
-      ? As.mounted('naclCrystal') ? 'crystal' : As.mounted('absorbersI') ? 'alWheel' : As.mounted('absorbersII') ? 'materialWheel' : 'empty'
+      ? As.mounted('naclCrystal') || As.mounted('lifCrystal') ? 'crystal' : As.mounted('absorbersI') ? 'alWheel' : As.mounted('absorbersII') ? 'materialWheel' : 'empty'
       : s_.holder
     buildHolder(holder)
-    crystal.visible = holder === 'crystal'
+    const lif = assembling ? As.mounted('lifCrystal') : s_.crystal === 'LiF'
+    crystal.visible = holder === 'crystal' && !lif
+    crystalLif.visible = holder === 'crystal' && lif
     collFoil.visible = assembling ? As.mounted('zrFilter') : !!s_.collimatorFilter
     sensorFoil.visible = assembling ? false : !!s_.sensorFilter
     lastSetup = s_
@@ -1125,7 +1130,7 @@ export function mountBench(
 
   // Snap-in: a newly mounted part eases from a little above and towards the student into its place.
   const snapRoots: Partial<Record<Part, THREE.Object3D>> = {
-    collimator: collW, counter: counterW, targetStage: stageW, naclCrystal: crystalW, zrFilter: foilW, absorbersI: plate, absorbersII: plate,
+    collimator: collW, counter: counterW, targetStage: stageW, naclCrystal: crystalW, lifCrystal: crystalW, zrFilter: foilW, absorbersI: plate, absorbersII: plate,
   }
   const SNAP_MS = 280
   const snaps = new Map<THREE.Object3D, number>()

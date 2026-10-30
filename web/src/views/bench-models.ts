@@ -57,6 +57,7 @@ export function makeMats(matte: MatFn) {
     strip: matte('bench-steel', { metalness: 0.9, roughness: 0.5, side: THREE.DoubleSide }),
     amber: matte('bench-amber', { roughness: 0.3, transparent: true, opacity: 0.9 }),
     crystal: matte('bench-crystal', { roughness: 0.08, transparent: true, opacity: 0.75, depthWrite: false }),
+    crystalLif: matte('bench-crystal-lif', { roughness: 0.04, transparent: true, opacity: 0.55, depthWrite: false }), // LiF: clearer and a little smaller than NaCl
     // Window fillings of the absorber sets, by slot: open, polystyrene, Al, Fe, Cu, Zr, Ag.
     fills: [
       null,

@@ -473,7 +473,7 @@ describe('attenuation tasks (EPN Práctica 1)', () => {
       expose(a, 0, 30, 30, 1) // open beam, saturated
       expect(attMaterial.success(a)).toBe(false)
       expect(done(attMaterial, a)).toBe(6)
-      expose(a, 0, 30, 30, 0.02) // 0.02 mA already saturates the open beam slightly
+      expose(a, 0, 30, 30, 0.05) // 0.05 mA saturates the open beam (0.02 mA, the guide's setting, does not)
       expect(attMaterial.success(a)).toBe(false)
       expose(a, 0, 30, 30, 0.01)
       expect(attMaterial.success(a)).toBe(true)
@@ -586,11 +586,11 @@ describe('exposureCsv', () => {
       '# Exposure series, simulated LD X-ray apparatus 554 800 (not measured data)',
       '# 1970-01-01T00:00:00.000Z',
     ])
-    expect(lines[3]).toBe('# rate_per_s is the mean rate over dt, as REPLAY shows it (counts / dt); areal_density_mg_cm2 is that of the absorber in the beam')
-    expect(lines[4]).toBe('target_deg,sensor_deg,mode,holder,crystal,slot,absorber,areal_density_mg_cm2,collimator_filter,sensor_filter,U_kV,I_mA,dt_s,changed,counts,rate_per_s')
+    expect(lines[3]).toBe('# rate_per_s is the mean rate over dt, as REPLAY shows it (counts / dt); set is the absorber set on the holder (I = Al, II = materials); thickness_mm and areal_density_mg_cm2 are those of the absorber in the beam')
+    expect(lines[4]).toBe('target_deg,sensor_deg,mode,holder,set,crystal,slot,absorber,thickness_mm,areal_density_mg_cm2,collimator_filter,sensor_filter,U_kV,I_mA,dt_s,changed,counts,rate_per_s')
     expect(lines).toHaveLength(5 + 2)
-    expect(lines[5]).toMatch(/^20\.0,0\.0,TARGET,alWheel,,2,Al,269\.89,,Zr,21\.0,0\.05,4,0,\d+,\d+(\.\d+)?$/)
-    expect(lines[6]).toMatch(/^5\.0,0\.0,TARGET,alWheel,,,frame,,,Zr,21\.0,0\.05,4,0,\d+,\d+(\.\d+)?$/)
+    expect(lines[5]).toMatch(/^20\.0,0\.0,TARGET,alWheel,I,,2,Al,1,269\.89,,Zr,21\.0,0\.05,4,0,\d+,\d+(\.\d+)?$/)
+    expect(lines[6]).toMatch(/^5\.0,0\.0,TARGET,alWheel,I,,,frame,,,,Zr,21\.0,0\.05,4,0,\d+,\d+(\.\d+)?$/)
   })
 
   test('open slot, no plate, and a COUPLED crystal exposure with both angles', () => {
@@ -610,9 +610,34 @@ describe('exposureCsv', () => {
     a.press('SCAN')
     a.tick(SAFETY_S)
     const lines = exposureCsv(a, new Date(0))!.trimEnd().split('\n')
-    expect(lines[5]).toMatch(/^0\.0,0\.0,,alWheel,,0,none,0,,,21\.0,/)
-    expect(lines[6]).toMatch(/^7\.2,14\.4,COUPLED,crystal,NaCl,,,,,,21\.0,0\.05,4,0,/)
+    expect(lines[5]).toMatch(/^0\.0,0\.0,,alWheel,I,,0,none,0,0,,,21\.0,/)
+    expect(lines[6]).toMatch(/^7\.2,14\.4,COUPLED,crystal,,NaCl,,,,,,,21\.0,0\.05,4,0,/)
     expect(lines.join('\n')).not.toContain('# crystal:')
+  })
+
+  test('the material set (II) reports its own thickness and the collimator Zr filter is named', () => {
+    const a = new Apparatus(mulberry32(5))
+    a.setDoors(false)
+    a.mount({ holder: 'materialWheel', crystal: 'NaCl', collimatorFilter: 'Zr', sensorFilter: null })
+    a.setDoors(true)
+    a.timeScale = Infinity
+    a.press('TARGET')
+    a.adjust(300) // 30°: slot 3, Fe
+    ;[a.u, a.i, a.dt, a.dBeta] = [300, 100, 4, 0]
+    a.press('SCAN')
+    a.tick(SAFETY_S)
+    const lines = exposureCsv(a, new Date(0))!.trimEnd().split('\n')
+    const head = lines[4].split(',')
+    const row = lines[5].split(',')
+    const col = (n: string) => row[head.indexOf(n)]
+    expect(col('set')).toBe('II')
+    expect(col('slot')).toBe('3')
+    expect(col('absorber')).toBe('Fe')
+    expect(col('thickness_mm')).toBe('0.5')
+    expect(col('areal_density_mg_cm2')).toBe('393.7')
+    expect(col('collimator_filter')).toBe('Zr')
+    expect(col('sensor_filter')).toBe('')
+    expect(row).toHaveLength(head.length)
   })
 })
 

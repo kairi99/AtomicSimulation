@@ -21,6 +21,15 @@ describe('tableSpots', () => {
       })
     }
   }
+  test('bragg: both crystals lie on the table, each on a spot of its own', () => {
+    for (const portrait of [false, true]) {
+      const parts = partsFor('bragg')
+      expect(parts).toEqual(expect.arrayContaining(['naclCrystal', 'lifCrystal']))
+      const spots = tableSpots(parts, tableLayout(portrait))
+      expect(spots.lifCrystal).toBeDefined()
+      expect(spots.lifCrystal).not.toEqual(spots.naclCrystal)
+    }
+  })
   test('a short last row is centred on the layout axis', () => {
     const l = { cols: 4, dx: 10, dz: 10, cx: 0, z0: 0, elev: 0.5 }
     const s = tableSpots(['collimator', 'counter', 'zrFilter', 'absorbersII', 'counterCable', 'targetStage'], l)

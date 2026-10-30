@@ -2,7 +2,7 @@
 // The 3D bench is the room. The panel, the monitor's spectrum and the chamber's 2D goniometer are focus cards
 // the camera flies to; Learn and Huygens stay inspectors.
 import './styles/app.css'
-import { Apparatus } from './apparatus/apparatus'
+import { Apparatus, type Setup } from './apparatus/apparatus'
 import { Assembly, ZERO_STEP, sameSetup, type BenchAssemblyHooks, type Experiment } from './apparatus/assembly'
 import { getLang, setLang, t, type Lang } from './i18n'
 import { mountLearn, pt } from './pedagogy/card'
@@ -18,12 +18,13 @@ import { mountAbout } from './views/about'
 import { at } from './views/assembly-i18n'
 import { mountAssemblyHud } from './views/assembly-hud'
 import { mountChooser } from './views/chooser'
-import { absorbersLoaded, loadAbsorbers } from './physics/tables'
+import { absorbersLoaded, crystalsLoaded, loadAbsorbers, loadCrystals } from './physics/tables'
 import { mountHuygens } from './views/huygens'
 import { mountPanel } from './views/panel'
 import { mountSetup } from './views/setup'
 import { mountSound } from './views/sound'
 import { mountSpectrum } from './views/spectrum'
+import { windowLabel } from './views/exposure-table'
 
 type Theme = 'auto' | 'light' | 'dark'
 const THEMES: Theme[] = ['auto', 'light', 'dark']
@@ -79,6 +80,7 @@ app.innerHTML = `
       <h2 class="card-title" id="chamber-title" data-chamber-title></h2><button class="tool close" data-back></button>
       <div class="led rate" role="group" data-rate-led><output data-rate></output><span class="unit" data-rate-unit></span></div>
       <canvas role="img" data-gonio></canvas><div class="sliders explore" data-explore></div>
+      <p class="hint" data-slot></p>
       <p class="hint" role="status" data-saturated></p>
       <details class="setup" data-setup></details>
     </section>
@@ -258,7 +260,7 @@ function toggleDoor() {
     }
     if (gateState === 'loading') {
       bench?.shake()
-      void loadAbsorbers().then(syncApparatus, () => showToast(at().loadFailed))
+      void loadTablesFor(asm().setup()).then(syncApparatus, () => showToast(at().loadFailed))
       return showToast(at().loadingParts)
     }
   }
@@ -310,6 +312,15 @@ function syncGeometry() {
   const A = asm()
   apparatus.setGeometry({ s1Cm: A.distance('s1'), s2Cm: A.distance('s2'), refCm: A.experiment === 'attenuation' ? PLATE_R_CM : 0 })
 }
+/** Does mounting `want` need a lazy table that has not arrived (the absorber tables, or a non-NaCl crystal's)? */
+const tablesMissing = (want: Setup): boolean =>
+  ((want.holder.endsWith('Wheel') || !!want.collimatorFilter) && !absorbersLoaded()) || (want.holder === 'crystal' && want.crystal !== 'NaCl' && !crystalsLoaded())
+function loadTablesFor(want: Setup | null): Promise<unknown> {
+  const jobs: Promise<unknown>[] = []
+  if (want && (want.holder.endsWith('Wheel') || want.collimatorFilter)) jobs.push(loadAbsorbers())
+  if (want?.holder === 'crystal' && want.crystal !== 'NaCl') jobs.push(loadCrystals())
+  return Promise.all(jobs)
+}
 /** Mirror the assembly on the Apparatus: mount the setup while the door is open, close the door for a teacher shortcut. */
 function syncApparatus() {
   syncGeometry()
@@ -317,7 +328,7 @@ function syncApparatus() {
   const A = asm()
   const want = A.setup()
   if (want && !apparatus.doorsClosed && !sameSetup(apparatus.setup, want)) {
-    if ((want.holder.endsWith('Wheel') || want.collimatorFilter) && !absorbersLoaded()) void loadAbsorbers().then(syncApparatus, () => {})
+    if (tablesMissing(want)) void loadTablesFor(want).then(syncApparatus, () => {})
     else {
       try {
         apparatus.mount(want)
@@ -368,6 +379,7 @@ function chooseExperiment(exp: Experiment) {
   seenSetup = apparatus.setup
   seenZero = apparatus.zeroPresses
   if (exp === 'attenuation') void loadAbsorbers().catch(() => {}) // the wheels and the Zr foil need the tables
+  else void loadCrystals().catch(() => {}) // the LiF crystal of the Bragg bench needs its table
   setFocus('room')
   learn.reset()
   const A = new Assembly(exp)
@@ -577,6 +589,9 @@ function frame(now: number) {
     const sat = apparatus.saturated ? t().saturated : ''
     const satEl = q('.chamber-card [data-saturated]') // the panel card has its own, earlier in the markup
     if (satEl.textContent !== sat) satEl.textContent = sat
+    const slotEl = q('.chamber-card [data-slot]')
+    const slotText = windowLabel(apparatus)
+    if (slotEl.textContent !== slotText) slotEl.textContent = slotText
     setup.render()
   }
   // SCAN passed its self-test: step back from the panel to watch the arms move and the monitor fill.

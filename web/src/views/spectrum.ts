@@ -4,7 +4,7 @@
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 import { crystalOf, type Apparatus, type Setup } from '../apparatus/apparatus'
-import { t } from '../i18n'
+import { getLang, t } from '../i18n'
 import { downloadCsv, downloadExposureCsv } from '../pedagogy/csv'
 import { foilsOf, hasActiveTask } from '../pedagogy/task'
 import { showHints } from '../pedagogy/mode'
@@ -12,7 +12,9 @@ import { MIN_PROMINENCE_SIGMA, lineProminenceSigma, strongestLineRatePerS } from
 import { D_NACL_PM, HC_KEV_PM, K_EDGE_KEV, MO_KA_PM, MO_KB_PM } from '../physics/constants'
 import { allowedOrders, lambdaFromTheta, NACL, thetaFromLambda } from '../physics/crystal'
 import { lambdaMinPm } from '../physics/source'
+import { WHEELS_MM } from '../physics/tables'
 import { palette, paletteVersion, scaledFont } from './canvas'
+import { exposureTableHtml } from './exposure-table'
 
 export const LOG_RANGE = { min: 0.1, max: 1e5 } // 1/s: reaches the 0.2/s background
 const GAINS = [10, 100] as const // linear display zoom (a simulation aid): the y range is [0, yMax / zoom]; pressing the active one goes back to ×1
@@ -136,12 +138,14 @@ export function mountSpectrum(root: HTMLElement, a: Apparatus) {
   const data = (): uPlot.AlignedData => [xs, log ? ys.map((y) => (y > 0 ? y : null)) : ys] // log: no zeros
 
   root.innerHTML = `<span class="visually-hidden" role="status" data-status></span><div class="view-head" data-head></div>
-    <div class="plot" data-plot><output class="readout" data-readout></output><p class="empty" data-empty><span></span></p></div>`
+    <div class="plot" data-plot><output class="readout" data-readout></output><div class="empty" data-empty><span></span><div class="exp-table" data-exp-table hidden></div></div></div>`
   const head = root.querySelector<HTMLElement>('[data-head]')!
   const status = root.querySelector<HTMLElement>('[data-status]')! // the one live region: a rebuilt header would re-announce
   const box = root.querySelector<HTMLElement>('[data-plot]')!
   const empty = root.querySelector<HTMLElement>('[data-empty]')!
 
+  const expTable = root.querySelector<HTMLElement>('[data-exp-table]')!
+  let expTableKey = ''
   let emptyText = ''
   /** The empty-plot message follows the state (exposure series have no spectrum); written only on change. */
   const emptyMessage = () => {
@@ -204,7 +208,10 @@ export function mountSpectrum(root: HTMLElement, a: Apparatus) {
         width: box.clientWidth,
         height: box.clientHeight,
         legend: { show: false },
-        scales: { x: { time: false, auto: false }, y: { auto: false, distr: log ? 3 : 1, log: 10 } },
+        // The x range is the scan's own until the student zooms. It is given as a range callback, not only as setScale() after the
+        // constructor: that call is queued, and a setData() in the same frame (a scan whose first points arrived before the frame that
+        // built the plot, as on a slow or throttled machine, or at x100/x∞) re-applied the still-unset scale and left an empty window.
+        scales: { x: { time: false, auto: false, range: (_u, min, max) => (min == null || max == null || !(max > min) ? [xRange().min, xRange().max] : [min, max]) }, y: { auto: false, distr: log ? 3 : 1, log: 10 } },
         axes: [
           { ...axis, grid: { show: false }, label: scan?.mode === 'SENSOR' ? s.axisSensor : s.axisTarget, labelSize: 22 },
           {
@@ -470,6 +477,14 @@ export function mountSpectrum(root: HTMLElement, a: Apparatus) {
     const noScan = n === 0 && m > 0 // exposures only: one export item, not two
     if (csv.hidden !== noScan) csv.hidden = noScan
     setEmpty()
+    // Exposure record: the raw data of every logged exposure, while there is no scan on the plot.
+    const tableKey = m === 0 ? '' : `${m}|${getLang()}|${a.exposureLog.at(-1)!.rate}|${WHEELS_MM.al.length}`
+    if (tableKey !== expTableKey) {
+      expTableKey = tableKey
+      expTable.innerHTML = m === 0 ? '' : exposureTableHtml(a.exposureLog)
+      expTable.hidden = m === 0
+      empty.classList.toggle('with-table', m > 0)
+    }
     if (exp.dataset.n !== String(m)) {
       exp.dataset.n = String(m)
       exp.hidden = m === 0

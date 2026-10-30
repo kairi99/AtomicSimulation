@@ -962,6 +962,10 @@ def build():
                     ]
                     for w, slots in WHEELS_MM.items()
                 },
+                "wheels_mm": {
+                    w: [None if slot is None else [slot[0], slot[1]] for slot in slots]
+                    for w, slots in WHEELS_MM.items()
+                },
             }
         ),
         "tables/structure_factor.json": _dump(

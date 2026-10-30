@@ -1,6 +1,6 @@
 // The procedures of LD instruction sheet 554 800 §11, key by key, plus the panel's guard rails.
 import { beforeAll, describe, expect, test } from 'vitest'
-import { Apparatus, MOTOR_DEG_PER_S, OK_S, SAFE_S, adjustMultiplier, fmtMean, wheelSlot, wrapTarget, type Key, type Setup } from '../src/apparatus/apparatus'
+import { Apparatus, AdjustAccel, MOTOR_DEG_PER_S, OK_S, SAFE_S, adjustMultiplier, fmtMean, wheelSlot, wrapTarget, type Key, type Setup } from '../src/apparatus/apparatus'
 import { mulberry32 } from '../src/physics/detector'
 import { DEFAULT, directRate, expectedRate } from '../src/physics/scan'
 import { CRYSTALS, FOILS_MG_CM2, WHEELS_MG_CM2, loadAbsorbers, loadCrystals } from '../src/physics/tables'
@@ -104,6 +104,19 @@ describe('§11 b) parameters', () => {
 
   test('ADJUST responds dynamically', () => {
     expect([1, 10, 40].map(adjustMultiplier)).toEqual([1, 5, 20])
+  })
+
+  test('discrete presses never accelerate, however fast; a continuous turn does', () => {
+    const acc = new AdjustAccel()
+    // 100 presses 20 ms apart (a stuck-down-and-tapped key, a script): every one is a single detent
+    const sum = Array.from({ length: 100 }, (_, k) => acc.multiplier(k * 20, false)).reduce((x, y) => x + y, 0)
+    expect(sum).toBe(100)
+    const fast = new AdjustAccel()
+    const m = Array.from({ length: 30 }, (_, k) => fast.multiplier(k * 20, true))
+    expect(m.slice(0, 2)).toEqual([1, 1])
+    expect(Math.max(...m)).toBe(20)
+    expect(fast.multiplier(10_000, false)).toBe(1) // a discrete press also resets the history
+    expect(fast.multiplier(10_020, true)).toBe(1)
   })
 })
 
@@ -533,10 +546,14 @@ describe('setup (G1.7)', () => {
     a.press('TARGET')
     a.target = 0
     expect(a.expectedRate()).toBe(directRate(30, 0.02))
+    expect(a.saturated).toBe(false) // the guide's own open-beam setting does not trip the warning
     a.target = 100
-    expect(a.saturated).toBe(true) // polystyrene 0.5 mm
+    expect(a.saturated).toBe(false) // polystyrene 0.5 mm at the guide's 0.02 mA (≈ 24 % dead-time loss)
     a.target = 200
     expect(a.saturated).toBe(false) // Al
+    a.i = 5 // 0.05 mA: well past 30 % loss
+    a.target = 0
+    expect(a.saturated).toBe(true)
   })
 
   test('empty holder off-axis follows the direct-beam profile', () => {

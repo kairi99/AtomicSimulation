@@ -43,6 +43,18 @@ const es = {
   spectrumExposures: (n: number) =>
     `${n === 1 ? '1 exposición registrada' : `${n} exposiciones registradas`}. Con Δβ = 0 no hay espectro: REPLAY muestra la última y CSV las descarga todas.`,
   spectrumExposuresShort: (n: number) => (n === 1 ? '1 exposición registrada' : `${n} exposiciones registradas`),
+  // ── Exposure record table (raw data of each exposure, shown in the monitor; the evaluation is the student's) and the absorber-window readout
+  expTableLabel: 'Exposiciones registradas: datos de cada una',
+  expTableNote: 'Datos crudos: calcular T, ln T y μ es tu trabajo.',
+  expCols: { n: '#', slot: 'Ranura (°)', material: 'Absorbente', d: 'd (mm)', u: 'U (kV)', i: 'I (mA)', dt: 'Δt (s)', counts: 'Cuentas', rate: 'R (1/s)' },
+  expOpen: 'abierta',
+  expFrame: 'marco',
+  expNoPlate: '—',
+  expChanged: 'U o I cambiaron mientras contaba',
+  absorberNames: { Polystyrene: 'Poliestireno', Al: 'Al', Fe: 'Fe', Cu: 'Cu', Zr: 'Zr', Ag: 'Ag' } as Record<string, string>,
+  slotWindow: (material: string, mm: string) => `Ventana: ${material} ${mm} mm`,
+  slotOpen: 'Ventana: abierta (sin absorbente)',
+  slotFrame: 'Marco (entre ventanas)',
   forge: 'Forja',
   huygens: 'Diferencia de camino',
   huygensNote:
@@ -127,7 +139,7 @@ const es = {
   sensorFilter: 'Filtro en el sensor',
   noFilter: 'Ninguno',
   setupLocked: 'Abre la puerta para cambiar el montaje.',
-  saturated: 'Simulación: el contador está saturado (tiempo muerto); baja I o añade un absorbente.',
+  saturated: 'Simulación: el contador pierde más del 30 % de los pulsos por tiempo muerto; baja I o añade un absorbente.',
   modeLabel: 'Modo de uso',
   modes: { explore: 'Explorar', lab: 'Laboratorio' },
   modeHint: {
@@ -209,6 +221,18 @@ const en: Dict = {
   spectrumExposures: (n: number) =>
     `${n === 1 ? '1 exposure' : `${n} exposures`} logged. With Δβ = 0 there is no spectrum: REPLAY shows the last one and CSV downloads them all.`,
   spectrumExposuresShort: (n: number) => (n === 1 ? '1 exposure logged' : `${n} exposures logged`),
+  // ── Exposure record table (raw data of each exposure, shown in the monitor; the evaluation is the student's) and the absorber-window readout
+  expTableLabel: 'Logged exposures: the data of each one',
+  expTableNote: 'Raw data: computing T, ln T and μ is your job.',
+  expCols: { n: '#', slot: 'Slot (°)', material: 'Absorber', d: 'd (mm)', u: 'U (kV)', i: 'I (mA)', dt: 'Δt (s)', counts: 'Counts', rate: 'R (1/s)' },
+  expOpen: 'open',
+  expFrame: 'frame',
+  expNoPlate: '—',
+  expChanged: 'U or I changed while counting',
+  absorberNames: { Polystyrene: 'Polystyrene', Al: 'Al', Fe: 'Fe', Cu: 'Cu', Zr: 'Zr', Ag: 'Ag' } as Record<string, string>,
+  slotWindow: (material: string, mm: string) => `Window: ${material} ${mm} mm`,
+  slotOpen: 'Window: open (no absorber)',
+  slotFrame: 'Frame (between windows)',
   forge: 'Forge',
   huygens: 'Path difference',
   huygensNote:
@@ -292,7 +316,7 @@ const en: Dict = {
   sensorFilter: 'Sensor filter',
   noFilter: 'None',
   setupLocked: 'Open the door to change the setup.',
-  saturated: 'Simulation: the counter is saturated (dead time); lower I or add an absorber.',
+  saturated: 'Simulation: the counter loses over 30 % of the pulses to dead time; lower I or add an absorber.',
   modeLabel: 'App mode',
   modes: { explore: 'Explore', lab: 'Lab' },
   modeHint: {
