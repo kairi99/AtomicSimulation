@@ -22,7 +22,7 @@ const ids = (e: 'bragg' | 'attenuation') => stepsFor(e).map((s) => s.id)
 
 describe('step sequences', () => {
   test('bragg', () => {
-    expect(ids('bragg')).toEqual(['collimator', 's1', 'counter', 'counterCable', 's2', 'naclCrystal', 'door', 'zero'])
+    expect(ids('bragg')).toEqual(['collimator', 's1', 'counter', 'counterCable', 's2', 'crystal', 'door', 'zero'])
   })
   test('the goniometer and its ribbon cable are permanently installed: no step, part or zone for them', () => {
     for (const e of EXPERIMENTS) {
@@ -40,10 +40,10 @@ describe('step sequences', () => {
   })
   test('tray order is a fixed shuffle with the distractors mixed in', () => {
     for (const e of ['bragg', 'attenuation'] as const) {
-      const inOrder = stepsFor(e).flatMap((s) => (s.part ? [s.part] : []))
+      const inOrder = stepsFor(e).flatMap((s) => (s.part ? [s.part, ...(s.alt ?? [])] : []))
       const tray = partsFor(e)
       expect(partsFor(e)).toEqual(tray) // deterministic
-      expect(tray).toHaveLength(inOrder.length + 3)
+      expect(tray).toHaveLength(inOrder.length + (e === 'bragg' ? 3 : 4))
       expect(inOrder.every((p) => tray.includes(p))).toBe(true)
       expect(tray.slice(0, inOrder.length)).not.toEqual(inOrder) // the sequence is not given away
       expect(tray.slice(-3).some((p) => inOrder.includes(p))).toBe(true) // distractors are not all last
@@ -231,12 +231,68 @@ describe('free swaps (attenuation)', () => {
     expect(a.place('absorbersI', 'collimatorTip' as Zone)).toEqual({ ok: false, reason: 'wrongZone' })
     expect(a.place('naclCrystal', 'targetHolder')).toEqual({ ok: false, reason: 'wrongPart' })
   })
-  test('bragg has no swaps', () => {
+  test('bragg swaps only the crystals; the attenuation accessories stay out', () => {
     const a = new Assembly('bragg')
     a.autoComplete()
     a.setDoor(false)
     expect(a.place('absorbersI', 'targetHolder')).toEqual({ ok: false, reason: 'wrongPart' })
     expect(a.place('naclCrystal', 'targetHolder')).toEqual({ ok: false, reason: 'alreadyPlaced' })
+  })
+})
+
+describe('bragg crystals: LiF or NaCl on the holder', () => {
+  const upToCrystal = () => {
+    const a = new Assembly('bragg')
+    for (let s = a.current(); s && s.id !== 'crystal'; s = a.current()) {
+      if (s.part) a.place(s.part, s.zone!)
+      else {
+        a.setDistance(s.distance!.which, s.distance!.targetCm)
+        a.commitDistance(s.distance!.which)
+      }
+    }
+    return a
+  }
+  test('both crystals are on the table and the crystal step accepts either', () => {
+    expect(partsFor('bragg')).toEqual(expect.arrayContaining(['naclCrystal', 'lifCrystal']))
+    expect(partsFor('attenuation')).toContain('lifCrystal') // a distractor there
+    for (const p of ['lifCrystal', 'naclCrystal'] as Part[]) {
+      const a = upToCrystal()
+      expect(a.zonesFor(p)).toEqual(['targetHolder'])
+      expect(a.place(p, 'targetHolder')).toEqual(ok)
+      expect(a.current()?.id).toBe('door')
+    }
+  })
+  test('the mounted crystal sets setup.crystal', () => {
+    const lif = upToCrystal()
+    lif.place('lifCrystal', 'targetHolder')
+    expect(lif.setup()).toEqual({ holder: 'crystal', crystal: 'LiF', collimatorFilter: null, sensorFilter: null, detector: 'gm' })
+    const nacl = upToCrystal()
+    nacl.place('naclCrystal', 'targetHolder')
+    expect(nacl.setup()?.crystal).toBe('NaCl')
+  })
+  test('swap with the door open: one crystal at a time, through the table', () => {
+    const a = upToCrystal()
+    a.place('lifCrystal', 'targetHolder')
+    a.setDoor(true)
+    a.notifyZero()
+    a.setDoor(false)
+    expect(a.done()).toBe(true)
+    expect(a.place('naclCrystal', 'targetHolder')).toEqual({ ok: false, reason: 'setTaken' })
+    expect(a.place('lifCrystal', 'tray')).toEqual(ok)
+    expect(a.setup()?.holder).toBe('empty')
+    expect(a.place('naclCrystal', 'targetHolder')).toEqual(ok)
+    expect(a.setup()).toMatchObject({ holder: 'crystal', crystal: 'NaCl' })
+    expect(a.place('naclCrystal', 'collimatorTip' as Zone)).toEqual({ ok: false, reason: 'wrongZone' })
+  })
+  test('adopt mirrors a crystal set from outside (a task)', () => {
+    const a = upToCrystal()
+    a.place('naclCrystal', 'targetHolder')
+    a.setDoor(true)
+    a.notifyZero()
+    a.adopt({ holder: 'crystal', crystal: 'LiF', collimatorFilter: null, sensorFilter: null, detector: 'gm' })
+    expect(a.mounted('lifCrystal')).toBe(true)
+    expect(a.mounted('naclCrystal')).toBe(false)
+    expect(a.setup()?.crystal).toBe('LiF')
   })
 })
 

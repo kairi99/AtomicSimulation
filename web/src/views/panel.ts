@@ -1,14 +1,14 @@
 // The 554 800 panel: LED displays, HV lamp, key groups, the ADJUST dial and the door interlock.
 // Renders Apparatus state; every key goes to Apparatus.press.
-import { adjustMultiplier, type Apparatus, type Key } from '../apparatus/apparatus'
+import { AdjustAccel, adjustMultiplier, type Apparatus, type Key } from '../apparatus/apparatus'
 import { t } from '../i18n'
+import { windowLabel } from './exposure-table'
 
 export const GROUPS: [keyof ReturnType<typeof t>, Key[]][] = [
   ['groupParams', ['U', 'I', 'DT', 'DBETA', 'LIMITS']],
   ['groupMode', ['SENSOR', 'TARGET', 'COUPLED', 'ZERO']],
   ['groupOps', ['RESET', 'REPLAY', 'SCAN', 'HV', 'SPEAKER']],
 ]
-const ADJUST_WINDOW_MS = 300
 // Holding − or + repeats after HOLD_DELAY_MS every HOLD_REPEAT_MS, speeding up the longer it is held
 // (×1 for the first second, then ×5, ×20 after 3 s): big changes are practical on touch screens.
 const HOLD_DELAY_MS = 400
@@ -27,8 +27,8 @@ export function keySelected(a: Apparatus, k: Key): boolean {
 
 /** Builds the panel into `root`. `onDetent` fires on every ADJUST step (sound, haptics). */
 export function mountPanel(root: HTMLElement, a: Apparatus, onDetent: () => void) {
-  // Turning speed = detents in the last ADJUST_WINDOW_MS, so one quick double tap stays fine-grained.
-  let recent: number[] = []
+  // Turning speed = detents in the last ADJUST_WINDOW_MS of a CONTINUOUS turn; discrete presses never accelerate.
+  const accel = new AdjustAccel()
   let dialDeg = 0
   const detent = (dir: number, steps: number) => {
     a.adjust(dir * steps)
@@ -36,11 +36,8 @@ export function mountPanel(root: HTMLElement, a: Apparatus, onDetent: () => void
     root.querySelector<HTMLElement>('[data-dial]')?.style.setProperty('--rot', `${dialDeg}deg`)
     onDetent()
   }
-  const turn = (dir: number, coarse: boolean) => {
-    const now = performance.now()
-    recent = [...recent.filter((t0) => now - t0 < ADJUST_WINDOW_MS), now]
-    const rate = recent.length < 3 ? 0 : (1000 * recent.length) / ADJUST_WINDOW_MS
-    detent(dir, (coarse ? 10 : 1) * adjustMultiplier(rate))
+  const turn = (dir: number, coarse: boolean, continuous = false) => {
+    detent(dir, (coarse ? 10 : 1) * accel.multiplier(performance.now(), continuous))
   }
 
   // − / + keys: press and hold.
@@ -79,8 +76,8 @@ export function mountPanel(root: HTMLElement, a: Apparatus, onDetent: () => void
     const now = angle(e, grab)
     grab.acc += ((now - grab.last + 540) % 360) - 180 // shortest way round
     grab.last = now
-    for (; grab.acc >= DETENT_DEG; grab.acc -= DETENT_DEG) turn(1, false)
-    for (; grab.acc <= -DETENT_DEG; grab.acc += DETENT_DEG) turn(-1, false)
+    for (; grab.acc >= DETENT_DEG; grab.acc -= DETENT_DEG) turn(1, false, true)
+    for (; grab.acc <= -DETENT_DEG; grab.acc += DETENT_DEG) turn(-1, false, true)
   })
   for (const ev of ['pointerup', 'pointercancel', 'pointerleave'] as const) root.addEventListener(ev, release, true)
   // Not the element blur: pressing a key moves focus off the previous key, which would kill the repeat at once.
@@ -94,8 +91,8 @@ export function mountPanel(root: HTMLElement, a: Apparatus, onDetent: () => void
       if (!(e.target as HTMLElement).closest('[data-dial]')) return
       e.preventDefault()
       wheel -= e.deltaMode === 0 ? e.deltaY : e.deltaY * WHEEL_PX
-      for (; wheel >= WHEEL_PX; wheel -= WHEEL_PX) turn(1, false)
-      for (; wheel <= -WHEEL_PX; wheel += WHEEL_PX) turn(-1, false)
+      for (; wheel >= WHEEL_PX; wheel -= WHEEL_PX) turn(1, false, true)
+      for (; wheel <= -WHEEL_PX; wheel += WHEEL_PX) turn(-1, false, true)
     },
     { passive: false },
   )
@@ -104,7 +101,7 @@ export function mountPanel(root: HTMLElement, a: Apparatus, onDetent: () => void
     const dir = { ArrowUp: 1, ArrowRight: 1, ArrowDown: -1, ArrowLeft: -1 }[e.key]
     if (dir === undefined) return
     e.preventDefault()
-    turn(dir, e.shiftKey)
+    turn(dir, e.shiftKey, e.repeat) // a held key repeats; separate presses are discrete
   })
 
   const build = () => {
@@ -116,6 +113,7 @@ export function mountPanel(root: HTMLElement, a: Apparatus, onDetent: () => void
         <div class="led" role="group" aria-label="${s.bottomDisplay}"><output data-bottom></output><span class="unit" data-bottom-unit></span><span class="sym" data-sym></span></div>
       </div>
       <p class="alert-msg" role="status" data-alert></p>
+      <p class="hint" data-slot></p>
       <p class="hint" role="status" data-saturated></p>
       <div class="controls">
         ${GROUPS.map(([g, keys]) => `
@@ -168,6 +166,7 @@ export function mountPanel(root: HTMLElement, a: Apparatus, onDetent: () => void
     setAttr(q('[data-sym]'), 'title', d.symbol ? s[({ lower: 'symLower', upper: 'symUpper', exposure: 'symExposure' } as const)[d.symbol]] : null)
     q('[data-top]').parentElement!.classList.toggle('blink', d.blinkTop)
     setText(q('[data-alert]'), d.alert ? s[({ mode: 'alertMode', limits: 'alertLimits', doors: 'alertDoors', detector: 'alertDetector', detectorReset: 'alertDetectorReset' } as const)[d.alert]] : '')
+    setText(q('[data-slot]'), windowLabel(a))
     setText(q('[data-saturated]'), a.saturated ? s.saturated : '')
     q('[data-group="groupMode"]').classList.toggle('alert', d.alert === 'mode') // the keys that are missing
     q('[data-bottom]').parentElement!.classList.toggle('blink', d.flashBottom)

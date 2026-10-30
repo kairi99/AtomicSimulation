@@ -8,7 +8,7 @@ const COLOURS = [
   'danger', 'phys-kalpha', 'phys-kalpha-text', 'phys-kbeta', 'phys-continuum', 'phys-beam', 'phys-crystal', 'phys-constructive',
   'led-bg', 'bench-housing', 'bench-trim', 'bench-ink', 'bench-metal', 'bench-glass', 'bench-table',
   'bench-edge', 'bench-panel', 'bench-white', 'bench-black', 'bench-steel', 'bench-alu', 'bench-brass', 'bench-bronze',
-  'bench-copper', 'bench-iron', 'bench-zirc', 'bench-silver', 'bench-amber', 'bench-crystal',
+  'bench-copper', 'bench-iron', 'bench-zirc', 'bench-silver', 'bench-amber', 'bench-crystal', 'bench-crystal-lif',
 ] as const // prettier-ignore
 export type Palette = Record<(typeof COLOURS)[number], string> & { caption: string; footnote: string; font: string; mono: string }
 

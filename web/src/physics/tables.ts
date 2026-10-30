@@ -22,6 +22,8 @@ export const FOILS_MG_CM2: Record<string, number> = {}
 export const foilOf = (name: string | null): [string, number][] => (name === null ? [] : [[name, FOILS_MG_CM2[name]]])
 export type Slot = readonly [string, number] | null
 export const WHEELS_MG_CM2: Record<'al' | 'material', readonly Slot[]> = { al: [], material: [] }
+/** The same slots with their thickness in mm (the LD catalog value the areal density was computed from); exported by Python. */
+export const WHEELS_MM: Record<'al' | 'material', readonly Slot[]> = { al: [], material: [] }
 
 export const absorbersLoaded = (): boolean => 'Zr' in logMuRho
 
@@ -34,6 +36,7 @@ export async function loadAbsorbers(): Promise<void> {
   Object.assign(edgesPm, absorbers.edge_lambda_pm)
   Object.assign(FOILS_MG_CM2, absorbers.foils_mg_cm2)
   Object.assign(WHEELS_MG_CM2, absorbers.wheels_mg_cm2)
+  Object.assign(WHEELS_MM, absorbers.wheels_mm)
 }
 /** Crystal presets by name (LiF, NaCl, Si, calcite, muscovite); empty until loadCrystals() resolves. The NaCl
  * default path never needs it: it uses STRUCTURE_FACTOR_SQ_REL and D_NACL_PM. */

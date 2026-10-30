@@ -146,6 +146,18 @@ button, select { font: inherit; color: inherit; }
 }
 .plot .empty[hidden] { display: none; }
 .plot .empty span { background: var(--surface); padding: var(--space-2) var(--space-3); border-radius: var(--radius-s); }
+/* Exposure record: the raw data of each logged exposure under the explanation, scrolling on both axes on a phone */
+.plot .empty.with-table { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: var(--space-2); padding: var(--space-2) 0 0; overflow: hidden; pointer-events: auto; background: var(--surface); }
+.exp-table { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; text-align: start; font: var(--text-footnote); color: var(--label); font-variant-numeric: tabular-nums; }
+.exp-table[hidden] { display: none; }
+.exp-table table { border-collapse: collapse; min-width: 100%; white-space: nowrap; }
+.exp-table th, .exp-table td { padding: var(--space-1) var(--space-2); text-align: end; border-bottom: var(--stroke-hair) solid var(--separator); }
+.exp-table thead th { position: sticky; top: 0; background: var(--surface); color: var(--label-2); font-weight: 600; z-index: 1; }
+.exp-table tbody th { color: var(--label-2); font-weight: 400; }
+.exp-table td.txt, .exp-table thead th:nth-child(3) { text-align: start; }
+.exp-table abbr { text-decoration: none; color: var(--label-2); margin-inline-start: var(--space-1); }
+@media (max-width: 399px) { .exp-table th, .exp-table td { padding-inline: var(--space-1); } }
+.exp-table .foot { margin: var(--space-2) 0 0; color: var(--label-2); text-align: start; white-space: normal; }
 .u-select { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .u-cursor-x, .u-cursor-y { border-color: var(--label-3) !important; border-style: solid !important; } /* not the dashed edge markers */
 

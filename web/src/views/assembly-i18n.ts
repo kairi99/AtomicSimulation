@@ -20,7 +20,7 @@ const es = {
       title: 'Reflexión de Bragg en NaCl',
       goal: 'Mide los ángulos de las líneas Kα y Kβ del Mo en un monocristal de NaCl y comprueba la ley de Bragg.',
       ref: 'Basado en la ficha LD P7.1.2.1',
-      gear: ['Equipo de rayos X 554 800', 'Goniómetro 554 831', 'Contador de ventana final 559 01', 'Cristal de NaCl 554 78'],
+      gear: ['Equipo de rayos X 554 800', 'Goniómetro 554 831', 'Contador de ventana final 559 01', 'Cristales de LiF y de NaCl'],
     },
     attenuation: {
       title: 'Atenuación de rayos X',
@@ -58,6 +58,7 @@ const es = {
   completeTitle: 'Montaje completo',
   completeText: 'El equipo está listo: empieza el experimento.',
   completeSwap: 'Con la puerta abierta puedes cambiar el filtro de Zr y el juego de absorbentes.',
+  completeSwapBragg: 'Con la puerta abierta puedes cambiar el cristal (LiF o NaCl): saca uno a la mesa y pon el otro.',
   swapTitle: 'Cambiar accesorios',
   dismiss: 'Ocultar',
   resetView: 'Recentrar vista',
@@ -74,6 +75,7 @@ const es = {
     counterCable: 'Cable del contador',
     targetStage: 'Platina del blanco',
     naclCrystal: 'Cristal de NaCl',
+    lifCrystal: 'Cristal de LiF',
     absorbersI: 'Absorbentes, juego I (Al)',
     absorbersII: 'Absorbentes, juego II (materiales)',
     zrFilter: 'Filtro de Zr',
@@ -84,6 +86,7 @@ const es = {
     counterCable: 'Cable del contador',
     targetStage: 'Platina',
     naclCrystal: 'Cristal NaCl',
+    lifCrystal: 'Cristal LiF',
     absorbersI: 'Absorbentes I',
     absorbersII: 'Absorbentes II',
     zrFilter: 'Filtro de Zr',
@@ -102,7 +105,7 @@ const es = {
     counter: ['Coloca el contador en el asiento del sensor', 'Debe quedar alineado con la ranura del sensor.'],
     counterCable: ['Conecta su cable a la toma «GM TUBE»', 'Lleva los pulsos del tubo Geiger-Müller al equipo.'],
     s2: ['Ajusta s₂ ≈ {cm} cm', 'Un s₂ menor da más cuentas pero peor resolución angular: Kα y Kβ pueden dejar de separarse (nota de la ficha). Suelta al llegar.'],
-    naclCrystal: ['Pon el cristal de NaCl sobre la platina', 'Colócalo plano sobre la platina, sube la platina hasta el tope y aprieta con suavidad el tornillo moleteado. Tómalo solo por las caras cortas: es frágil e higroscópico.'],
+    crystal: ['Pon un cristal (LiF o NaCl) sobre la platina', 'La ficha mide primero LiF y después NaCl; con la puerta abierta podrás cambiarlo. Colócalo plano sobre la platina, sube la platina hasta el tope y aprieta con suavidad el tornillo moleteado. Tómalo solo por las caras cortas: es frágil (el NaCl, además, higroscópico).'],
     targetStage: ['Retira la platina del blanco del soporte', 'El soporte debe quedar libre para los absorbentes. Arrastra la platina y suéltala sobre la mesa.'],
     absorbersI: ['Pon el juego I de absorbentes en el soporte', 'El borde guía entra en la ranura curva de 90°.'],
     door: ['Cierra la puerta', 'Desliza la puerta por su asa hasta cerrarla (o usa el botón). Solo con la puerta cerrada el equipo da alta tensión.'],
@@ -123,11 +126,12 @@ const es = {
     },
     attenuation: {
       naclCrystal: 'Un cristal desvía el haz por difracción; la atenuación necesita el haz directo a 0°.',
+      lifCrystal: 'Un cristal desvía el haz por difracción; la atenuación necesita el haz directo a 0°.',
       absorbersII: 'Todavía no se usa: lo necesitarás en la segunda parte.',
       zrFilter: 'Todavía no se usa: lo necesitarás en la segunda parte.',
     },
   } as Record<Experiment, Partial<Record<Part, string>>>,
-  removeFirst: { absorbersI: 'Quita primero el juego II.', absorbersII: 'Quita primero el juego I.' } as Partial<Record<Part, string>>,
+  removeFirst: { absorbersI: 'Quita primero el juego II.', absorbersII: 'Quita primero el juego I.', naclCrystal: 'Quita primero el cristal de LiF.', lifCrystal: 'Quita primero el cristal de NaCl.' } as Partial<Record<Part, string>>,
   reason: (r: Reason, part: string, zone: string, step: string): string => {
     switch (r) {
       case 'wrongPart': return `«${part}» no se usa en esta fase de este experimento.`
@@ -135,7 +139,7 @@ const es = {
       case 'alreadyPlaced': return `«${part}» ya está en su sitio.`
       case 'wrongZone': return `«${part}» no va en «${zone}».`
       case 'doorClosed': return 'Abre la puerta para manipular las piezas.'
-      case 'setTaken': return 'Ya hay un juego de absorbentes en el soporte.'
+      case 'setTaken': return 'Ya hay otra pieza del mismo tipo en el soporte.'
     }
   },
 }
@@ -155,7 +159,7 @@ const en: typeof es = {
       title: 'Bragg reflection at NaCl',
       goal: 'Measure the angles of the Mo Kα and Kβ lines at an NaCl single crystal and check Bragg’s law.',
       ref: 'Based on LD leaflet P7.1.2.1',
-      gear: ['X-ray apparatus 554 800', 'Goniometer 554 831', 'End-window counter 559 01', 'NaCl crystal 554 78'],
+      gear: ['X-ray apparatus 554 800', 'Goniometer 554 831', 'End-window counter 559 01', 'LiF and NaCl crystals'],
     },
     attenuation: {
       title: 'Attenuation of X-rays',
@@ -192,6 +196,7 @@ const en: typeof es = {
   completeTitle: 'Assembly complete',
   completeText: 'The apparatus is ready: begin the experiment.',
   completeSwap: 'With the door open you can swap the Zr filter and the absorber set.',
+  completeSwapBragg: 'With the door open you can swap the crystal (LiF or NaCl): put one on the table and mount the other.',
   swapTitle: 'Change accessories',
   dismiss: 'Hide',
   resetView: 'Reset view',
@@ -208,6 +213,7 @@ const en: typeof es = {
     counterCable: 'Counter cable',
     targetStage: 'Target stage',
     naclCrystal: 'NaCl crystal',
+    lifCrystal: 'LiF crystal',
     absorbersI: 'Absorbers, set I (Al)',
     absorbersII: 'Absorbers, set II (materials)',
     zrFilter: 'Zr filter',
@@ -218,6 +224,7 @@ const en: typeof es = {
     counterCable: 'Counter cable',
     targetStage: 'Target stage',
     naclCrystal: 'NaCl crystal',
+    lifCrystal: 'LiF crystal',
     absorbersI: 'Absorbers I',
     absorbersII: 'Absorbers II',
     zrFilter: 'Zr filter',
@@ -236,7 +243,7 @@ const en: typeof es = {
     counter: ['Put the counter on the sensor seat', 'It must line up with the sensor slit.'],
     counterCable: ['Plug its cable into the “GM TUBE” socket', 'It carries the Geiger-Müller pulses to the apparatus.'],
     s2: ['Set s₂ ≈ {cm} cm', 'A smaller s₂ gives more counts but poorer angular resolution: Kα and Kβ may stop separating (leaflet note). Let go when you get there.'],
-    naclCrystal: ['Put the NaCl crystal on the target stage', 'Lay it flat on the stage, raise the stage to the stop and tighten the knurled screw gently. Hold it by the short faces only: it is fragile and hygroscopic.'],
+    crystal: ['Put a crystal (LiF or NaCl) on the target stage', 'The leaflet measures LiF first, then NaCl; with the door open you can swap it later. Lay it flat on the stage, raise the stage to the stop and tighten the knurled screw gently. Hold it by the short faces only: it is fragile (NaCl is also hygroscopic).'],
     targetStage: ['Take the target stage off the holder', 'The holder must be free for the absorbers. Drag the stage and drop it on the table.'],
     absorbersI: ['Put absorber set I on the holder', 'The guide edge goes into the 90° curved groove.'],
     door: ['Close the door', 'Slide the door shut by its handle (or use the button). The apparatus gives high voltage only with the door closed.'],
@@ -255,11 +262,12 @@ const en: typeof es = {
     },
     attenuation: {
       naclCrystal: 'A crystal diffracts the beam away; attenuation needs the straight beam at 0°.',
+      lifCrystal: 'A crystal diffracts the beam away; attenuation needs the straight beam at 0°.',
       absorbersII: 'Not used yet: you will need it in the second part.',
       zrFilter: 'Not used yet: you will need it in the second part.',
     },
   },
-  removeFirst: { absorbersI: 'Remove set II first.', absorbersII: 'Remove set I first.' },
+  removeFirst: { absorbersI: 'Remove set II first.', absorbersII: 'Remove set I first.', naclCrystal: 'Remove the LiF crystal first.', lifCrystal: 'Remove the NaCl crystal first.' },
   reason: (r, part, zone, step) => {
     switch (r) {
       case 'wrongPart': return `“${part}” is not used at this stage of this experiment.`
@@ -267,7 +275,7 @@ const en: typeof es = {
       case 'alreadyPlaced': return `“${part}” is already in place.`
       case 'wrongZone': return `“${part}” does not go in “${zone}”.`
       case 'doorClosed': return 'Open the door to handle the parts.'
-      case 'setTaken': return 'An absorber set is already on the holder.'
+      case 'setTaken': return 'Another part of the same kind is already on the holder.'
     }
   },
 }

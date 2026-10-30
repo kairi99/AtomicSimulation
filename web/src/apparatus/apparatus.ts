@@ -69,6 +69,24 @@ export function adjustMultiplier(detentsPerSecond: number): number {
   return detentsPerSecond < 5 ? 1 : detentsPerSecond < 15 ? 5 : 20
 }
 
+/** Window over which the turning speed of a CONTINUOUS turn (dial drag, wheel, a held key) is measured. */
+export const ADJUST_WINDOW_MS = 300
+/** Turning-speed tracker for the dynamic ADJUST response. Only a continuous turn accelerates: separate presses of the
+ * − / + keys or of an arrow key (each one a discrete step, however fast the student taps) always move one detent, so
+ * "10° = 100 presses" lands on 10°, not on a multiple of the multiplier. */
+export class AdjustAccel {
+  private recent: number[] = []
+  /** The multiplier for a detent at `nowMs`; a discrete press resets the speed history. */
+  multiplier(nowMs: number, continuous: boolean): number {
+    if (!continuous) {
+      this.recent = []
+      return 1
+    }
+    this.recent = [...this.recent.filter((t0) => nowMs - t0 < ADJUST_WINDOW_MS), nowMs]
+    return adjustMultiplier(this.recent.length < 3 ? 0 : (1000 * this.recent.length) / ADJUST_WINDOW_MS)
+  }
+}
+
 export type ReplayPoint = { angle: number; rate: number } // angle in 0.1°, mean rate in 1/s over Δt
 
 /** One finished exposure (Δβ = 0). Simulation aid: the device keeps only the last value for REPLAY, a
@@ -112,8 +130,10 @@ export function wheelSlot(holder: Holder, angle: number): number | null {
   return k < 0 || k > 6 || Math.abs(t - 100 * k) > WHEEL_WINDOW_DEG * 10 ? null : k
 }
 
-/** Saturation: the true rate R is past Rτ = 0.3, i.e. the observed rate m = R/(1+Rτ) is past m·τ = 0.3/1.3. */
-export const SATURATION_OBSERVED_TAU = 0.3 / 1.3
+/** Saturation warning: the dead-time loss fraction 1 − m/R = m·τ (non-paralysable, m observed) is past 30 %, i.e. R·τ > 0.43.
+ * The guide's own settings (30 kV, 0.02 mA, open slot: loss ≈ 24 % in our model, ≈ 18 % at the leaflet's tabulated 1841/s) must not
+ * trip it. See model/PARAMETERS.md, `Apparatus.saturated` threshold. */
+export const SATURATION_OBSERVED_TAU = 0.3
 
 export type Display = {
   top: string

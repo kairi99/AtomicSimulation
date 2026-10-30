@@ -1,7 +1,7 @@
 // Lab mode: the stored scan points as CSV, for the student's own analysis (LD P6.3.3.1 Tables 3–5).
 import { type Apparatus, type Mode, type ReplayPoint, type Setup, wrapTarget } from '../apparatus/apparatus'
 import { crystalLabel, isForgeKey } from '../i18n'
-import { CRYSTALS, WHEELS_MG_CM2 } from '../physics/tables'
+import { CRYSTALS, WHEELS_MG_CM2, WHEELS_MM } from '../physics/tables'
 
 /** The crystal as a CSV file names it: a preset's key, or a Forge crystal's name marked hypothetical (English, as the headers). */
 const crystalCsv = (key: string): string => (isForgeKey(key) ? crystalLabel(key, 'en') : key)
@@ -59,8 +59,8 @@ export function replayCsv(a: Apparatus, date = new Date()): string | null {
 }
 
 /** The apparatus' exposure log (EPN P1: one exposure per absorber) as CSV text, one row per exposure;
- * null if the log is empty. The slot, absorber and its areal density (mg/cm², the unit of the tables: no
- * thickness in mm is stored) are empty when the wheel frame blocks the beam or no plate is mounted. */
+ * null if the log is empty. The set (I = Al, II = materials), slot, absorber, thickness (mm, the table's catalog value) and areal
+ * density (mg/cm²) are empty when no plate is mounted, and the absorber reads "frame" with the rest empty when the frame blocks the beam. */
 export function exposureCsv(a: Apparatus, date = new Date()): string | null {
   if (a.exposureLog.length === 0) return null
   const rows = a.exposureLog.map((e) => {
@@ -68,9 +68,11 @@ export function exposureCsv(a: Apparatus, date = new Date()): string | null {
     const plate = holder === 'alWheel' ? 'al' : holder === 'materialWheel' ? 'material' : null
     const slot = plate && e.slot !== null ? WHEELS_MG_CM2[plate][e.slot] : null
     // Open slot: "none", 0; frame in the beam: no slot, "frame"; no plate mounted: all three empty.
-    const absorber = plate === null ? ['', '', ''] : e.slot === null ? ['', 'frame', ''] : [e.slot, slot?.[0] ?? 'none', slot?.[1] ?? 0]
+    const mm = plate && e.slot !== null ? WHEELS_MM[plate][e.slot] : null
+    const set = plate === 'al' ? 'I' : plate === 'material' ? 'II' : ''
+    const absorber = plate === null ? ['', '', '', ''] : e.slot === null ? ['', 'frame', '', ''] : [e.slot, slot?.[0] ?? 'none', mm ? mm[1] : 0, slot?.[1] ?? 0]
     return [
-      (e.target / 10).toFixed(1), (e.sensor / 10).toFixed(1), e.mode ?? '', holder, holder === 'crystal' ? csvField(crystalCsv(e.setup.crystal)) : '', ...absorber,
+      (e.target / 10).toFixed(1), (e.sensor / 10).toFixed(1), e.mode ?? '', holder, set, holder === 'crystal' ? csvField(crystalCsv(e.setup.crystal)) : '', ...absorber,
       collimatorFilter ?? '', sensorFilter ?? '', (e.u / 10).toFixed(1), (e.i / 100).toFixed(2), e.dt, e.changed ? 1 : 0,
       Math.round(e.rate * e.dt), e.rate,
     ].join(',')
@@ -79,8 +81,8 @@ export function exposureCsv(a: Apparatus, date = new Date()): string | null {
     '# Exposure series, simulated LD X-ray apparatus 554 800 (not measured data)',
     `# ${date.toISOString()}`,
     '# U_kV and I_mA are the values when counting started; changed = 1 if either changed while counting',
-    '# rate_per_s is the mean rate over dt, as REPLAY shows it (counts / dt); areal_density_mg_cm2 is that of the absorber in the beam',
-    'target_deg,sensor_deg,mode,holder,crystal,slot,absorber,areal_density_mg_cm2,collimator_filter,sensor_filter,U_kV,I_mA,dt_s,changed,counts,rate_per_s',
+    '# rate_per_s is the mean rate over dt, as REPLAY shows it (counts / dt); set is the absorber set on the holder (I = Al, II = materials); thickness_mm and areal_density_mg_cm2 are those of the absorber in the beam',
+    'target_deg,sensor_deg,mode,holder,set,crystal,slot,absorber,thickness_mm,areal_density_mg_cm2,collimator_filter,sensor_filter,U_kV,I_mA,dt_s,changed,counts,rate_per_s',
     ...rows,
   ].join('\n') + '\n'
 }

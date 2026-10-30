@@ -40,13 +40,13 @@ import type { Setup } from './apparatus'
 export type Experiment = 'bragg' | 'attenuation'
 export type Part =
   | 'collimator' | 'counter' | 'counterCable'
-  | 'targetStage' | 'naclCrystal' | 'absorbersI' | 'absorbersII' | 'zrFilter'
+  | 'targetStage' | 'naclCrystal' | 'lifCrystal' | 'absorbersI' | 'absorbersII' | 'zrFilter'
 export type Zone =
   | 'collimatorMount' | 'sensorSeat' | 'gmSocket'
   | 'targetHolder' | 'tray' | 'collimatorTip'
 export type Distance = 's1' | 's2'
 export type StepId = string
-export type Step = Readonly<{ id: StepId; part?: Part; zone?: Zone; distance?: { which: Distance; targetCm: number; tolCm: number } }>
+export type Step = Readonly<{ id: StepId; part?: Part; /** other parts that satisfy the same step (the Bragg crystal step takes LiF or NaCl) */ alt?: readonly Part[]; zone?: Zone; distance?: { which: Distance; targetCm: number; tolCm: number } }>
 export type PlaceResult = { ok: true } | { ok: false; reason: 'wrongZone' | 'notYet' | 'alreadyPlaced' | 'wrongPart' | 'doorClosed' | 'setTaken' }
 
 export const EXPERIMENTS: readonly Experiment[] = ['bragg', 'attenuation']
@@ -59,6 +59,9 @@ export const ZERO_STEP = 'zero'
 
 const dist = (which: Distance, targetCm: number): Step => ({ id: which, distance: { which, targetCm, tolCm: 0.5 } })
 const mount = (part: Part, zone: Zone): Step => ({ id: part, part, zone })
+/** The two Bragg crystals of the guide (P7.1.2.1 measures LiF first, then NaCl): either one completes the 'crystal' step. */
+export const BRAGG_CRYSTALS: readonly Part[] = ['lifCrystal', 'naclCrystal']
+const stepParts = (s: Step): readonly Part[] => (s.part ? [s.part, ...(s.alt ?? [])] : [])
 
 // The goniometer sits permanently on its guide rods and its ribbon cable is already plugged in (as in the real lab):
 // they are not parts of the assembly, the 3D bench draws them from the start.
@@ -67,7 +70,7 @@ const STEPS: Record<Experiment, readonly Step[]> = {
   bragg: [
     ...COMMON, dist('s1', 5),
     mount('counter', 'sensorSeat'), mount('counterCable', 'gmSocket'),
-    dist('s2', 6), mount('naclCrystal', 'targetHolder'), { id: DOOR_STEP }, { id: ZERO_STEP },
+    dist('s2', 6), { id: 'crystal', part: 'naclCrystal', alt: ['lifCrystal'], zone: 'targetHolder' }, { id: DOOR_STEP }, { id: ZERO_STEP },
   ],
   attenuation: [
     ...COMMON,
@@ -78,7 +81,7 @@ const STEPS: Record<Experiment, readonly Step[]> = {
 /** Tray extras that are never right during the assembly (always refused with a reason). */
 const DISTRACTORS: Record<Experiment, readonly Part[]> = {
   bragg: ['absorbersI', 'absorbersII', 'zrFilter'],
-  attenuation: ['naclCrystal', 'absorbersII', 'zrFilter'],
+  attenuation: ['naclCrystal', 'lifCrystal', 'absorbersII', 'zrFilter'],
 }
 
 export const stepsFor = (exp: Experiment): readonly Step[] => STEPS[exp]
@@ -99,10 +102,10 @@ function shuffled<T>(items: readonly T[], seed: number): T[] {
   }
   return out
 }
-const SEED: Record<Experiment, number> = { bragg: 554800, attenuation: 6321 }
+const SEED: Record<Experiment, number> = { bragg: 554800, attenuation: 6322 }
 const TRAY: Record<Experiment, readonly Part[]> = {
-  bragg: shuffled([...STEPS.bragg.flatMap((s) => (s.part ? [s.part] : [])), ...DISTRACTORS.bragg], SEED.bragg),
-  attenuation: shuffled([...STEPS.attenuation.flatMap((s) => (s.part ? [s.part] : [])), ...DISTRACTORS.attenuation], SEED.attenuation),
+  bragg: shuffled([...STEPS.bragg.flatMap(stepParts), ...DISTRACTORS.bragg], SEED.bragg),
+  attenuation: shuffled([...STEPS.attenuation.flatMap(stepParts), ...DISTRACTORS.attenuation], SEED.attenuation),
 }
 /** Every part shown in the tray of an experiment: the steps' parts and the distractors in one fixed, seeded shuffle. */
 export const partsFor = (exp: Experiment): readonly Part[] => TRAY[exp]
@@ -115,6 +118,7 @@ export const zonesOf = (exp: Experiment): readonly Zone[] => {
   const z = STEPS[exp].flatMap((s) => (s.zone ? [s.zone] : []))
   const all = [...new Set<Zone>(z)]
   if (exp === 'attenuation') all.push('collimatorTip')
+  if (exp === 'bragg') all.push('tray') // a crystal goes back to the table to swap it
   return all.includes('tray') ? [...all.filter((x) => x !== 'tray'), 'tray'] : all
 }
 
@@ -196,19 +200,19 @@ export class Assembly {
   zonesFor(part: Part): Zone[] {
     if (this.doorShut) return []
     if (this.done()) {
-      if (this.experiment !== 'attenuation') return []
+      if (this.experiment === 'bragg') return BRAGG_CRYSTALS.includes(part) ? [this.on.has(part) ? 'tray' : 'targetHolder'] : []
       if (part === 'zrFilter') return [this.on.has(part) ? 'tray' : 'collimatorTip']
       if (part === 'absorbersI' || part === 'absorbersII') return [this.on.has(part) ? 'tray' : 'targetHolder']
       return []
     }
     const s = this.current()
-    return s?.part === part && s.zone ? [s.zone] : []
+    return s && stepParts(s).includes(part) && s.zone ? [s.zone] : []
   }
 
   place(part: Part, zone: Zone): PlaceResult {
     if (!this.parts().includes(part)) return { ok: false, reason: 'wrongPart' }
     if (this.doorShut) return { ok: false, reason: 'doorClosed' }
-    const known = this.steps.findIndex((s) => s.part === part)
+    const known = this.steps.findIndex((s) => stepParts(s).includes(part))
     if (this.done()) return this.swap(part, zone, known >= 0)
     if (known < 0) return { ok: false, reason: 'wrongPart' }
     if (known < this.idx) return { ok: false, reason: 'alreadyPlaced' }
@@ -221,10 +225,22 @@ export class Assembly {
     return { ok: true }
   }
 
-  /** Free swaps after the assembly: only the attenuation experiment has any. */
+  /** Free swaps after the assembly: the attenuation accessories (Zr filter, absorber sets) and the Bragg crystals (one at a time). */
   private swap(part: Part, zone: Zone, inSteps: boolean): PlaceResult {
     const has = this.on.has(part)
     const fail = (reason: 'wrongZone' | 'alreadyPlaced' | 'wrongPart' | 'setTaken'): PlaceResult => ({ ok: false, reason })
+    if (this.experiment === 'bragg' && BRAGG_CRYSTALS.includes(part)) {
+      if (zone !== 'targetHolder' && zone !== 'tray') return fail('wrongZone')
+      if ((zone === 'tray') === !has) return fail('alreadyPlaced')
+      if (zone === 'tray') this.on.delete(part)
+      else {
+        if (BRAGG_CRYSTALS.some((c) => c !== part && this.on.has(c))) return fail('setTaken') // one crystal on the holder: the other goes to the tray first
+        this.on.add(part)
+      }
+      this.ext = null
+      this.emit()
+      return { ok: true }
+    }
     if (this.experiment !== 'attenuation' || (part !== 'zrFilter' && part !== 'absorbersI' && part !== 'absorbersII')) return fail(inSteps ? 'alreadyPlaced' : 'wrongPart')
     const home: Zone = part === 'zrFilter' ? 'collimatorTip' : 'targetHolder'
     if (zone !== home && zone !== 'tray') return fail('wrongZone')
@@ -301,7 +317,10 @@ export class Assembly {
       this.setMounted('absorbersI', setup.holder === 'alWheel')
       this.setMounted('absorbersII', setup.holder === 'materialWheel')
       this.setMounted('zrFilter', setup.collimatorFilter === 'Zr')
-    } else this.setMounted('naclCrystal', setup.holder === 'crystal')
+    } else {
+      this.setMounted('naclCrystal', setup.holder === 'crystal' && setup.crystal !== 'LiF')
+      this.setMounted('lifCrystal', setup.holder === 'crystal' && setup.crystal === 'LiF')
+    }
     this.ext = sameSetup(setup, this.setup()!) ? null : setup // anything the parts cannot express (an XRF sample, LiF) is kept as it is
     this.emit()
   }
@@ -325,7 +344,10 @@ export class Assembly {
   setup(): Setup | null {
     if (!this.setupReady()) return null
     if (this.ext) return this.ext
-    if (this.experiment === 'bragg') return { holder: 'crystal', crystal: 'NaCl', collimatorFilter: null, sensorFilter: null, detector: 'gm' }
+    if (this.experiment === 'bragg') {
+      const lif = this.on.has('lifCrystal')
+      return { holder: lif || this.on.has('naclCrystal') ? 'crystal' : 'empty', crystal: lif ? 'LiF' : 'NaCl', collimatorFilter: null, sensorFilter: null, detector: 'gm' }
+    }
     const holder = this.on.has('absorbersI') ? 'alWheel' : this.on.has('absorbersII') ? 'materialWheel' : 'empty'
     return { holder, crystal: 'NaCl', collimatorFilter: this.on.has('zrFilter') ? 'Zr' : null, sensorFilter: null, detector: 'gm' }
   }

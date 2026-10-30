@@ -47,7 +47,7 @@
   --bench-edge: #b4b1aa; --bench-panel: #d9d8d3; --bench-white: #e9e8e4; --bench-black: #17171a;
   --bench-steel: #b9bdc2; --bench-alu: #d2d5d9; --bench-brass: #b8923f; --bench-bronze: #94603a;
   --bench-copper: #b86a3e; --bench-iron: #6b6e73; --bench-zirc: #8d9094; --bench-silver: #eceef0;
-  --bench-amber: #e0891f; --bench-crystal: #e6f1f4;
+  --bench-amber: #e0891f; --bench-crystal: #e6f1f4; --bench-crystal-lif: #e3dcf0; /* LiF: clear with a faint warm-violet tint, NaCl is cool cyan */
   --bench-light: 1; /* scene light strength; dimmer in dark mode */
   --dur-camera: 700ms; /* the camera flying to a part of the bench */
 }
