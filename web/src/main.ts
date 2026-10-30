@@ -13,7 +13,7 @@ import type { Focus, mountBench, Pick } from './views/bench'
 import type { Reserve } from './views/bench-assembly-geometry'
 import type { mountForge } from './views/forge'
 import { readPalette } from './views/canvas'
-import { mountGoniometer } from './views/goniometer'
+import { mountGoniometer, PLATE_R_CM } from './views/goniometer'
 import { mountAbout } from './views/about'
 import { at } from './views/assembly-i18n'
 import { mountAssemblyHud } from './views/assembly-hud'
@@ -229,9 +229,9 @@ let bench: ReturnType<typeof mountBench> | null = null
 let focus: Focus = 'room'
 function setFocus(f: Focus, viaPick = false) {
   if (f === focus) return
-  // A tap on the panel in 3D always opens the panel card (also while assembling: the student may read the keys then);
+  // A tap on the panel or the monitor in 3D always opens its card (also while assembling: the student may read the keys or the plot then);
   // the dock's own buttons and the other cards stay gated until the bench is assembled.
-  if (f !== 'room' && !ready() && !(viaPick && f === 'panel') && !(f === 'panel' && asm().current()?.id === ZERO_STEP)) return showToast(at().gateHint) // the last step needs the panel alone
+  if (f !== 'room' && !ready() && !(viaPick && (f === 'panel' || f === 'monitor')) && !(f === 'panel' && asm().current()?.id === ZERO_STEP)) return showToast(at().gateHint) // the last step needs the panel alone
   const prev = focus
   focus = f
   stage.dataset.view = f
@@ -305,8 +305,14 @@ const chooser = mountChooser(q('[data-chooser]'), {
 /** The Apparatus carries the setup the assembly describes (or the assembly has none yet). */
 const setupMatches = (): boolean => asm().doorGate(apparatus.setup) !== 'loading'
 let adopting = false
+/** The chamber geometry the student set (s₁, s₂) limits how far the arms turn before they hit the walls. */
+function syncGeometry() {
+  const A = asm()
+  apparatus.setGeometry({ s1Cm: A.distance('s1'), s2Cm: A.distance('s2'), refCm: A.experiment === 'attenuation' ? PLATE_R_CM : 0 })
+}
 /** Mirror the assembly on the Apparatus: mount the setup while the door is open, close the door for a teacher shortcut. */
 function syncApparatus() {
+  syncGeometry()
   if (adopting) return // the assembly just took over the Apparatus's own setup
   const A = asm()
   const want = A.setup()
@@ -368,6 +374,7 @@ function chooseExperiment(exp: Experiment) {
   A.onChange(syncApparatus)
   A.onChange(gate)
   hud.attach(A) // replaces benchHooks.assembly and tells the bench (onAssembly)
+  syncGeometry()
   lastReady = false
   gate()
   showToast(at().switched(at().cards[exp].title))
@@ -377,6 +384,7 @@ function chooseExperiment(exp: Experiment) {
   A.onChange(syncApparatus)
   A.onChange(gate)
   hud.attach(A)
+  syncGeometry()
 }
 
 // The part of the stage the assembly HUD covers (css px): a side column on desktop, a bottom sheet (above the dock) below it.
@@ -403,7 +411,7 @@ import('./views/bench')
       reserve: benchReserve,
       tip: q('[data-tip]'),
     })
-    if (import.meta.env.DEV) Object.assign(window, { __benchZones: () => bench?.debug(), __finishAsm: finishForTeacher })
+    if (import.meta.env.DEV) Object.assign(window, { __benchZones: () => bench?.debug(), __finishAsm: finishForTeacher, __apparatus: apparatus })
     if (focus !== 'room') bench.fly(focus) // a card opened before the chunk arrived
   })
   .catch(() => {

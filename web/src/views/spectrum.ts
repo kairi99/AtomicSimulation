@@ -36,6 +36,10 @@ export function edgeMarkers(setup: Setup, dPm = D_NACL_PM): { el: string; theta:
   return els.map((el) => ({ el, theta: thetaFromLambda(HC_KEV_PM / K_EDGE_KEV[el as keyof typeof K_EDGE_KEV], 1, dPm) })).filter((m) => !Number.isNaN(m.theta))
 }
 
+/** Bragg reference overlays (line angles, λmin band, foil edges, nλ readout) only mean something when a crystal was on the holder:
+ * without one (wheel, empty, sample) the scan is the direct beam and drawing diffraction lines on it would suggest peaks. */
+export const showsBraggOverlays = (setup: Setup): boolean => setup.holder === 'crystal'
+
 /** Allowed orders of the crystal a stored scan was made with (NaCl when its holder was no crystal). */
 export const scanOrders = (setup: Setup): number[] => allowedOrders(setup.holder === 'crystal' ? crystalOf(setup) : NACL)
 
@@ -268,7 +272,7 @@ export function mountSpectrum(root: HTMLElement, a: Apparatus) {
           drawClear: [
             (u) => {
               labels = []
-              if (!explore || !scan || scan.mode === 'TARGET') return // none on the empty axis
+              if (!explore || !scan || scan.mode === 'TARGET' || !showsBraggOverlays(scan.setup)) return // none on the empty axis, nor without a crystal
               const f = scan.mode === 'SENSOR' ? 2 : 1
               const { ctx, bbox } = u
               const k = uPlot.pxRatio
@@ -337,7 +341,7 @@ export function mountSpectrum(root: HTMLElement, a: Apparatus) {
               const i = u.cursor.idx
               if (i == null || i >= xs.length) return void (readout.textContent = '')
               const [x, y] = [xs[i], ys[i]]
-              const lam = explore && scan?.mode === 'COUPLED' ? ` · ${t().pathDiff} = ${lambdaFromTheta(x, 1, scanD(scan!.setup)).toFixed(1)} pm (= nλ)` : ''
+              const lam = explore && scan?.mode === 'COUPLED' && showsBraggOverlays(scan.setup) ? ` · ${t().pathDiff} = ${lambdaFromTheta(x, 1, scanD(scan!.setup)).toFixed(1)} pm (= nλ)` : ''
               readout.textContent = `${x.toFixed(1)}° · ${y.toFixed(1)} 1/s${lam}`
             },
           ],

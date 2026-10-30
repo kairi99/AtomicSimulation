@@ -9,6 +9,7 @@ import { crystalByName, type Crystal } from '../physics/crystal'
 import { mcaSpectrum } from '../physics/fluorescence'
 import { FOILS_MG_CM2, WHEELS_MG_CM2, XRF, absorbersLoaded, foilOf } from '../physics/tables'
 import { Mca } from './mca'
+import { armLimits, SENSOR_RANGE, type ArmLimits } from './collision'
 
 export type Key =
   | 'U' | 'I' | 'DT' | 'DBETA' | 'LIMITS' // parameter keys (§7 b3)
@@ -187,6 +188,7 @@ export class Apparatus {
   secondsCounted = 0 // increments with every whole simulated second
   timeScale = 1 // 1, 10, 100 or Infinity (instant); simulation-only, not a feature of the real device
   private clockS = 0
+  private limits: ArmLimits | null = null
 
   private rng: Rng
   private params: ModelParams
@@ -455,11 +457,11 @@ export class Apparatus {
     }
     this.edit = this.replayIndex = null // a hand on the arm ends an edit, as a key would
     this.bottomShows = this.mode // the display shows the arm being moved
-    if (this.mode === 'TARGET') this.target += detents
-    else if (this.mode === 'SENSOR') this.sensor = clamp(this.sensor + detents, ...ARM_RANGE.SENSOR)
+    if (this.mode === 'TARGET') this.target = clamp(this.target + detents, ...this.armRange('TARGET'))
+    else if (this.mode === 'SENSOR') this.sensor = clamp(this.sensor + detents, ...this.armRange('SENSOR'))
     else {
       // Manual 2:1 coupling relative to the arms when COUPLED was pressed (§7 b4, §11 c).
-      const [sMin, sMax] = ARM_RANGE.SENSOR
+      const [sMin, sMax] = this.armRange('SENSOR')
       const { target: t0, sensor: s0 } = this.coupleRef
       const t = this.target + detents
       const tMin = t0 + Math.ceil((sMin - s0) / 2)
@@ -645,9 +647,38 @@ export class Apparatus {
     return this.path.at(-1) ?? { target: this.target, sensor: this.sensor }
   }
 
-  /** Queue a motor move of the scan arm to `angle` (0.1°). */
+  /** The distances s₁, s₂ (cm) the student set on the bench, and `refCm` (the attenuation set-up measures to the absorber set's
+   * window). The counter and the crystal holder then run into the chamber at angles that depend on them (apparatus/collision.ts):
+   * the arms stall there, and anything beyond is out of reach. null: no geometry, the plain ranges apply. */
+  setGeometry(g: { s1Cm: number; s2Cm: number; refCm?: number } | null): void {
+    this.limits = g && armLimits(g.s1Cm, g.s2Cm, g.refCm ?? 0)
+    const [sLo, sHi] = this.armRange('SENSOR')
+    const [tLo, tHi] = this.armRange('TARGET')
+    this.sensor = clamp(this.sensor, sLo, sHi)
+    this.target = clamp(this.target, tLo, tHi)
+    this.path = this.path.map((p) => ({ target: clamp(p.target, tLo, tHi), sensor: clamp(p.sensor, sLo, sHi) }))
+  }
+
+  /** The mechanical collision limits of the arms now (0.1°), null without geometry. */
+  get armLimits(): ArmLimits | null {
+    return this.limits
+  }
+
+  /** The range an arm can reach in `mode` (0.1°): the device range cut by what the chamber allows at the current s₁, s₂. COUPLED
+   * is the target's range; the sensor follows at twice the angle, so both must stay free. */
+  armRange(mode: Mode): readonly [number, number] {
+    const l = this.limits
+    if (!l) return mode === 'TARGET' ? [-Infinity, Infinity] : ARM_RANGE[mode] // the target arm turns without limit
+    if (mode === 'SENSOR') return [Math.max(SENSOR_RANGE[0], l.sensorMin), Math.min(SENSOR_RANGE[1], l.sensorMax)]
+    if (mode === 'TARGET') return [l.targetMin <= ARM_RANGE.TARGET[0] ? -Infinity : l.targetMin, l.targetMax >= ARM_RANGE.TARGET[1] ? Infinity : l.targetMax] // free: it turns without limit
+    const [lo, hi] = ARM_RANGE.COUPLED
+    return [Math.max(lo, Math.ceil(l.sensorMin / 2), l.targetMin), Math.min(hi, Math.floor(l.sensorMax / 2), l.targetMax)]
+  }
+
+  /** Queue a motor move of the scan arm to `angle` (0.1°). An arm that meets the chamber stalls at the last free angle. */
   private moveTo(angle: number): void {
     const at = this.restingArms()
+    angle = clamp(angle, ...this.armRange(this.mode ?? 'COUPLED'))
     if (this.mode === 'SENSOR') this.path.push({ ...at, sensor: angle })
     else if (this.mode === 'TARGET') this.path.push({ ...at, target: angle })
     else this.path.push({ target: angle, sensor: 2 * angle }) // auto-scan couples to zero (§7 b4)

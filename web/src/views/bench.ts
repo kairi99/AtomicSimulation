@@ -24,6 +24,7 @@ import { fitPoints, freeArea, hitSizeCm, pxPerCm, s1FromRay, s2FromRay, type Res
 import { tableLayout, tableRect, tableSpots } from './bench-table-layout'
 import { PLATE_R_CM, S1_CM } from './goniometer'
 import { keySelected } from './panel'
+import { BEAM_Y, CEIL, COL_X, D, FLOOR, H, SLIT_X, W, WALL_X } from '../apparatus/collision'
 
 export type Focus = 'room' | 'panel' | 'monitor' | 'chamber'
 export type Pick = Exclude<Focus, 'room'> | 'door'
@@ -32,19 +33,12 @@ type Colour = keyof Omit<Palette, 'caption' | 'footnote' | 'font' | 'mono'>
 
 const RAD = Math.PI / 180
 // Housing (instruction sheet §4) and the parts inside it, cm. x to the right, y up, z towards the student.
-const W = 67
-const H = 48
-const D = 35
-const FLOOR = 8 // chamber floor above the table (feet and plinth)
-const CEIL = H - 2
-const COL_X = -W / 2 + 17 // right edge of the panel column
-const WALL_X = 1 // wall between the tube chamber and the experiment chamber
-const BEAM_Y = 20
 const ANODE_X = (COL_X + WALL_X) / 2
-const SLIT_X = WALL_X + 5 // collimator slit, s₁ before the goniometer axis
 const DOOR_TOP = 40 // lead-glass window above the experiment chamber door
 const DOOR_W = W / 2 - WALL_X - 1.5
-const DOOR_SLIDE = WALL_X + 0.75 - COL_X // open, it stops at the panel column
+const DOOR_X = (W / 2 + WALL_X) / 2 // the door's centre when closed
+const DOOR_Z = D / 2 + 3 // its own track, in front of the tube chamber's door and the panel (the ADJUST knob stands 1.4 proud)
+const DOOR_SLIDE = DOOR_X - DOOR_W / 2 + W / 2 - 0.3 // open, it has slid to the apparatus's left edge, over the tube chamber and the panel
 const PANEL = { x: (-W / 2 + COL_X) / 2, y: 27.5, w: 15.5, h: 28 } // control panel face
 const PX_PER_CM = 64 // panel texture resolution
 const MONITOR = { x: 60, z: -4, yaw: -0.35, w: 44, h: 27.5, y: 34 } // a 20″ screen
@@ -246,9 +240,14 @@ export function mountBench(
   door.add(box(0.7, 10, 0.7, M.steel, DOOR_W / 2 - 1.6, 0, 1.5), box(0.5, 0.5, 1.2, M.steel, DOOR_W / 2 - 1.6, 4.3, 0.9), box(0.5, 0.5, 1.2, M.steel, DOOR_W / 2 - 1.6, -4.3, 0.9)) // handle
   pick(door, 'door')
   pane.userData.glass = true // open or locked, taps pass through the glass: only the frame and grip answer
-  const doorX = (W / 2 + WALL_X) / 2
-  door.position.set(doorX, FLOOR + 0.5 + doorH / 2, D / 2 + 1)
+  const doorX = DOOR_X
+  door.position.set(doorX, FLOOR + 0.5 + doorH / 2, DOOR_Z)
   dev.add(door)
+  // The door's track: a top and a bottom rail across the whole front, with the brackets that hold them off the frames.
+  for (const y of [FLOOR + 0.5 + doorH + 0.7, FLOOR - 0.2]) {
+    dev.add(box(W - 0.6, 0.8, 1.4, M.steel, 0, y, DOOR_Z))
+    for (const x of [-W / 2 + 1.5, W / 2 - 1.5, WALL_X]) dev.add(box(1, 0.8, DOOR_Z - zf, M.steel, x, y, (DOOR_Z + zf) / 2))
+  }
 
   // Control panel face: light grey, with the displays, keys, LEDs and labels as a texture, the ADJUST knob a real knob.
   const panelCanvas = document.createElement('canvas')
@@ -383,7 +382,7 @@ export function mountBench(
   foilW.add(collFoil)
   dev.add(foilW)
   const sensorArm = new THREE.Group()
-  // ponytail: the counter clears floor and ceiling, but past 2θ ≈ 130° it clips the wall to the tube chamber
+  // The arm stalls where the counter meets the chamber (apparatus/collision.ts): the Apparatus never asks for more.
   const armRods = [-2.9, 2.9].map((y) => at3(cyl(0.3, 1, M.steel, 'x', 10), 0, y, ARM_Z)) // two parallel thin rods; length and place follow s₂ (applyDist)
   const armLeft = box(1.1, 6.6, 1.4, M.alu, -5.9, 0, ARM_Z)
   const armRight = box(1.3, 6.6, 1.4, M.alu, 0, 0, ARM_Z) // the bracket at the counter end
@@ -1456,7 +1455,7 @@ export function mountBench(
     down = null
     if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) >= TAP_PX) return
     const p = hit(e)
-    onPick(cur === 'assembly' && p !== 'door' && p !== 'panel' ? null : p) // while assembling, a tap on the chamber is not "open the card"
+    onPick(cur === 'assembly' && p !== 'door' && p !== 'panel' && p !== 'monitor' ? null : p) // while assembling, a tap on the chamber is not "open the card"
   })
   // Orbit gestures (assembly: empty space orbits, wheel / pinch zooms, right-drag / two fingers pan). Part grabs never reach
   // here: their capturing pointerdown disables the controls first, and `orbiting` stops a second finger from grabbing mid-gesture.
@@ -1660,7 +1659,7 @@ export function mountBench(
         o.localToWorld(v).project(camera)
         return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height }
       }
-      const picks = { panel: proj(panelFace), knob: proj(knob), door: proj(door, new THREE.Vector3(DOOR_W / 2 - 1.6, 0, 1.5)) }
+      const picks = { panel: proj(panelFace), monitor: proj(monitorScreen), knob: proj(knob), door: proj(door, new THREE.Vector3(DOOR_W / 2 - 1.6, 0, 1.5)) }
       return { zones, grabs, parts, table, picks, view: cur, calls: renderer.info.render.calls, tris: renderer.info.render.triangles }
     },
     /** The door refused to open (interlock): a short shake. */
