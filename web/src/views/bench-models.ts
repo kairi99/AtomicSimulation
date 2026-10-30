@@ -135,7 +135,8 @@ export function buildCollimator(M: Mats, wallFaceX: number, slitX: number, beamY
   cone.position.set(wallFaceX, beamY, 0)
   const insert = cylinder(0.55, 0.7, M.brass, 'x', 16)
   insert.position.set(slitX - 0.35, beamY, 0)
-  const slit = slab(0.05, 0.9, 0.12, M.black, slitX + 0.01, beamY, 0)
+  // horizontal: the slit lies perpendicular to the vertical plane the arms turn in (along z, towards the student)
+  const slit = slab(0.05, 0.12, 0.9, M.black, slitX + 0.01, beamY, 0)
   g.add(cone, insert, slit)
   return g
 }

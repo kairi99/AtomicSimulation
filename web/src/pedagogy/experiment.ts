@@ -1,5 +1,5 @@
 // Which experiment the student works on (Bragg at NaCl or X-ray attenuation) and whether its assembly was ever
-// completed on this device (then the teacher shortcut is offered). The chooser opens at every page load; the
+// completed on this device. The chooser opens at every page load; the
 // remembered choice is only pre-highlighted. Storage can throw (blocked cookies): nothing is then remembered.
 import { EXPERIMENTS, type Experiment } from '../apparatus/assembly'
 

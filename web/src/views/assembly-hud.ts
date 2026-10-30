@@ -13,9 +13,6 @@ import { at, stepText as stepStrings } from './assembly-i18n'
 
 type Opts = {
   toast: (text: string) => void
-  /** Offer "Montaje automático (docente)" (this experiment was assembled before on this device). */
-  teacherShortcut: () => boolean
-  onTeacher: () => void
   /** Experiment name for the title. */
   title: () => string
 }
@@ -115,14 +112,13 @@ export function mountAssemblyHud(root: HTMLElement, hooks: BenchAssemblyHooks, o
       : ''
     const trayBlock = `<div class="asm-tray-block" data-tray><h3>${s.trayTitle}</h3><p class="hint" id="asm-tray-hint">${s.trayHint}</p><ul class="asm-tray">${tray}</ul>${zones}</div>`
     const kbd = `<details class="asm-kbd"${kbdOpen ? ' open' : ''}><summary data-focus-key="kbd">${s.kbdTitle}</summary>${trayBlock}</details>`
-    const teacher = !done && opts.teacherShortcut() ? `<button class="about-link asm-teacher" data-teacher>${s.teacherAuto}</button>` : ''
     if (done) {
       return `<div class="asm-complete" tabindex="-1" data-complete><strong>✓ ${s.completeTitle}</strong><span>${s.completeText}${swaps ? ' ' + (exp === 'bragg' ? s.completeSwapBragg : s.completeSwap) : ''}</span>
         <button class="tool" data-dismiss aria-label="${s.dismiss}">×</button></div>
         ${swaps ? `<details class="asm-swap"><summary>${s.swapTitle}</summary>${trayBlock}</details>` : ''}`
     }
     return `<div class="asm-cur"><header class="asm-head"><h2>${escapeHtml(s.hudTitle(opts.title()))}</h2><span class="asm-count">${s.progress(asm.index(), asm.steps.length)}</span></header>
-      ${now}${dist}</div><div class="asm-more">${list}${kbd}</div>${teacher}`
+      ${now}${dist}</div><div class="asm-more">${list}${kbd}</div>`
   }
 
   function build() {
@@ -214,8 +210,7 @@ export function mountAssemblyHud(root: HTMLElement, hooks: BenchAssemblyHooks, o
       sig = ''
       render()
       if (p) body.querySelector<HTMLElement>(`[data-part="${p}"]`)?.focus()
-    } else if (b.dataset.teacher !== undefined) opts.onTeacher()
-    else if (b.dataset.dismiss !== undefined) ((dismissed = true), (root.hidden = true))
+    } else if (b.dataset.dismiss !== undefined) ((dismissed = true), (root.hidden = true))
   })
   root.addEventListener('toggle', (e) => {
     const d = e.target as HTMLDetailsElement

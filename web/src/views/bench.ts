@@ -210,7 +210,8 @@ export function mountBench(
   dev.add(box(2.2, CEIL - FLOOR, 1, M.steel, WALL_X, (CEIL + FLOOR) / 2, zf))
   dev.add(box(1.2, CEIL - FLOOR, 1, M.steel, COL_X + 0.4, (CEIL + FLOOR) / 2, zf))
   dev.add(box(WALL_X - COL_X, 1.2, 1, M.steel, (COL_X + WALL_X) / 2, FLOOR + 0.2, zf)) // sill under the tube chamber
-  const tubeDoor = box(WALL_X - COL_X - 1.4, CEIL - FLOOR - 1, 0.4, glass, (WALL_X + COL_X) / 2, (CEIL + FLOOR) / 2, D / 2 + 0.2)
+  // its back face 0.25 cm in front of the frames' front faces (z = D/2): coplanar, they z-fought while the camera moved
+  const tubeDoor = box(WALL_X - COL_X - 1.4, CEIL - FLOOR - 1, 0.4, glass, (WALL_X + COL_X) / 2, (CEIL + FLOOR) / 2, D / 2 + 0.45)
   tubeDoor.renderOrder = GLASS_ORDER
   dev.add(tubeDoor)
   // The large round black port on the right wall of the experiment chamber.

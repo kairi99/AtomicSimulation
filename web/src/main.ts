@@ -7,7 +7,7 @@ import { Assembly, ZERO_STEP, sameSetup, type BenchAssemblyHooks, type Experimen
 import { getLang, setLang, t, type Lang } from './i18n'
 import { exploreLock, mountLearn, pt } from './pedagogy/card'
 import { mountExplore } from './pedagogy/explore'
-import { getExperiment, hasRememberedExperiment, markAssembled, setExperiment, wasAssembled } from './pedagogy/experiment'
+import { getExperiment, hasRememberedExperiment, markAssembled, setExperiment } from './pedagogy/experiment'
 import { getMode, setMode } from './pedagogy/mode'
 import type { Focus, mountBench, Pick } from './views/bench'
 import type { Reserve } from './views/bench-assembly-geometry'
@@ -301,8 +301,6 @@ function finishForTeacher() {
 let chosen: Experiment | null = null
 const hud = mountAssemblyHud(q('[data-asm]'), benchHooks, {
   toast: (m) => showToast(m),
-  teacherShortcut: () => wasAssembled(asm().experiment),
-  onTeacher: () => finishForTeacher(),
   title: () => at().cards[asm().experiment].title,
 })
 const chooser = mountChooser(q('[data-chooser]'), {
