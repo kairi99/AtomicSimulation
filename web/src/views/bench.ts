@@ -34,7 +34,6 @@ type Colour = keyof Omit<Palette, 'caption' | 'footnote' | 'font' | 'mono'>
 const RAD = Math.PI / 180
 // Housing (instruction sheet §4) and the parts inside it, cm. x to the right, y up, z towards the student.
 const ANODE_X = (COL_X + WALL_X) / 2
-const DOOR_TOP = 40 // lead-glass window above the experiment chamber door
 const DOOR_W = W / 2 - WALL_X - 1.5
 const DOOR_X = (W / 2 + WALL_X) / 2 // the door's centre when closed
 const DOOR_Z = D / 2 + 3 // its own track, in front of the tube chamber's door and the panel (the ADJUST knob stands 1.4 proud)
@@ -206,16 +205,11 @@ export function mountBench(
   dev.add(box(tx1 - tx0, 0.2, D - 2, M.black, (tx0 + tx1) / 2, FLOOR + 0.1, 0))
   dev.add(box(0.2, IH, D - 2, M.black, tx0 + 0.1, (CEIL + FLOOR) / 2, 0))
   dev.add(box(0.2, IH, D - 2, M.black, tx1 - 0.1, (CEIL + FLOOR) / 2, 0))
-  // Front frames round both doors and the window, a little proud of the chambers (brushed stainless).
+  // Front frames round both doors, a little proud of the chambers (brushed stainless).
   const zf = D / 2 - 0.5
-  const topFrame = box(W / 2 - WALL_X, 1.5, 1, M.steel, (W / 2 + WALL_X) / 2, DOOR_TOP, zf) // hides the arm's top when seen from the front
-  dev.add(topFrame)
   dev.add(box(2.2, CEIL - FLOOR, 1, M.steel, WALL_X, (CEIL + FLOOR) / 2, zf))
   dev.add(box(1.2, CEIL - FLOOR, 1, M.steel, COL_X + 0.4, (CEIL + FLOOR) / 2, zf))
   dev.add(box(WALL_X - COL_X, 1.2, 1, M.steel, (COL_X + WALL_X) / 2, FLOOR + 0.2, zf)) // sill under the tube chamber
-  const window_ = box(W / 2 - WALL_X - 1, CEIL - DOOR_TOP - 1, 0.4, glass, (W / 2 + WALL_X) / 2, (CEIL + DOOR_TOP) / 2, zf, 'chamber')
-  window_.renderOrder = GLASS_ORDER
-  dev.add(window_)
   const tubeDoor = box(WALL_X - COL_X - 1.4, CEIL - FLOOR - 1, 0.4, glass, (WALL_X + COL_X) / 2, (CEIL + FLOOR) / 2, D / 2 + 0.2)
   tubeDoor.renderOrder = GLASS_ORDER
   dev.add(tubeDoor)
@@ -231,7 +225,7 @@ export function mountBench(
   // Experiment chamber door: glass in a stainless frame with a vertical handle at its right edge, sliding left on its own
   // rail in front of the tube chamber.
   const door = new THREE.Group()
-  const doorH = DOOR_TOP - FLOOR - 1
+  const doorH = CEIL - FLOOR - 1 // full height, up to the top of the housing as on the real device
   const pane = box(DOOR_W - 2.2, doorH - 1.6, 0.4, doorGlass, 0.2, 0, 0)
   pane.renderOrder = GLASS_ORDER
   door.add(pane)
@@ -751,7 +745,6 @@ export function mountBench(
     applyLimits()
     // Seen from the front the frame above the door would cover the arm's top, and the open door (it only half clears the
     // opening) the chamber card: they step aside. The assembly view keeps the door: the student slides it shut there.
-    topFrame.visible = !(v === 'chamber' || v === 'assembly')
     door.visible = v !== 'chamber' // the assembly view shows it: closing it by hand is a step
     roof.visible = v !== 'assembly'
     if (!presets[v]) return // before the first layout, which then places the camera
