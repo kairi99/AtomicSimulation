@@ -726,6 +726,15 @@ button, select { font: inherit; color: inherit; }
   font: var(--text-footnote); font-variant-numeric: tabular-nums; white-space: nowrap; translate: -50% -140%;
 }
 .bench-tip[hidden] { display: none; }
+/* Assembly: back to the default camera framing (the view is orbitable). */
+.view-reset {
+  position: absolute; z-index: var(--z-overlay); top: var(--space-2); right: var(--space-2); min-block-size: var(--touch); min-inline-size: var(--touch);
+  padding: 0 var(--space-3); border: none; border-radius: var(--radius-full); cursor: pointer; touch-action: manipulation;
+  background: color-mix(in srgb, var(--surface) 82%, transparent); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-sheet); color: var(--label); font: var(--text-footnote);
+}
+.view-reset[hidden] { display: none; }
+.view-reset:focus-visible { outline: var(--stroke-focus) solid var(--accent); outline-offset: var(--space-1); }
 .bench[data-grab] { cursor: grab; }
 .bench[data-grabbing] { cursor: grabbing; }
 .learn h3.task-group { margin-block-start: var(--space-5); }

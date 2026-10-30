@@ -14,7 +14,7 @@
 //                          crystal lies flat on it).
 //   asm.inChamber(part)    the counter lies loose on the chamber floor during the cap step (its tray item is then
 //                          "in the chamber" and not a second source); from the next step it is a tray part.
-//   asm.distance('s1'|'s2')  cm, for placing the goniometer and the sensor holder. Bragg: s1 collimator slit to the
+//   asm.distance('s1'|'s2')  cm, for placing the (always mounted) goniometer and the sensor holder. Bragg: s1 collimator slit to the
 //                          target axis, s2 axis to the sensor slit. Attenuation (leaflet P6.3.2.1): both are measured to
 //                          the EMPTY WINDOW of the absorber set, i.e. from/to a point PLATE_R_CM beyond the axis (the
 //                          views add that reference; this class stores the leaflet's numbers).
@@ -42,10 +42,10 @@ import type { Setup } from './apparatus'
 
 export type Experiment = 'bragg' | 'attenuation'
 export type Part =
-  | 'collimator' | 'goniometer' | 'ribbonCable' | 'counterCap' | 'counter' | 'counterCable'
+  | 'collimator' | 'counterCap' | 'counter' | 'counterCable'
   | 'targetStage' | 'naclCrystal' | 'absorbersI' | 'absorbersII' | 'zrFilter'
 export type Zone =
-  | 'collimatorMount' | 'guideRods' | 'ribbonSocket' | 'sensorSeat' | 'gmSocket'
+  | 'collimatorMount' | 'sensorSeat' | 'gmSocket'
   | 'targetHolder' | 'tray' | 'collimatorTip'
 export type Distance = 's1' | 's2'
 export type StepId = string
@@ -63,16 +63,18 @@ export const ZERO_STEP = 'zero'
 const dist = (which: Distance, targetCm: number): Step => ({ id: which, distance: { which, targetCm, tolCm: 0.5 } })
 const mount = (part: Part, zone: Zone): Step => ({ id: part, part, zone })
 
-const COMMON: Step[] = [mount('collimator', 'collimatorMount'), mount('goniometer', 'guideRods')]
+// The goniometer sits permanently on its guide rods and its ribbon cable is already plugged in (as in the real lab):
+// they are not parts of the assembly, the 3D bench draws them from the start.
+const COMMON: Step[] = [mount('collimator', 'collimatorMount')]
 const STEPS: Record<Experiment, readonly Step[]> = {
   bragg: [
     ...COMMON, dist('s1', 5),
-    mount('ribbonCable', 'ribbonSocket'), mount('counterCap', 'tray'), mount('counter', 'sensorSeat'), mount('counterCable', 'gmSocket'),
+    mount('counterCap', 'tray'), mount('counter', 'sensorSeat'), mount('counterCable', 'gmSocket'),
     dist('s2', 6), mount('naclCrystal', 'targetHolder'), { id: DOOR_STEP }, { id: ZERO_STEP },
   ],
   attenuation: [
     ...COMMON,
-    mount('ribbonCable', 'ribbonSocket'), mount('counterCap', 'tray'), mount('counter', 'sensorSeat'), mount('counterCable', 'gmSocket'),
+    mount('counterCap', 'tray'), mount('counter', 'sensorSeat'), mount('counterCable', 'gmSocket'),
     mount('targetStage', 'tray'), mount('absorbersI', 'targetHolder'), dist('s1', 5), dist('s2', 5), { id: DOOR_STEP }, { id: ZERO_STEP },
   ],
 }

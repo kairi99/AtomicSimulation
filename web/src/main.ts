@@ -58,6 +58,7 @@ app.innerHTML = `
     <button class="act-strip" data-act hidden></button>
     <aside class="asm" data-asm></aside>
     <p class="bench-tip" data-tip hidden></p>
+    <button class="view-reset" data-view-reset hidden></button>
     <p class="toast" role="status" data-toast></p>
     <div class="dock" role="group" data-dock>
       <button class="gear" data-go="panel"><span aria-hidden="true">⚙︎</span><span data-settings></span></button>
@@ -156,6 +157,8 @@ const stage = q('.stage')
 const huygensSheet = q('#huygens')
 const learnSheet = q('#learn')
 const actStrip = q<HTMLButtonElement>('[data-act]')
+const viewReset = q<HTMLButtonElement>('[data-view-reset]')
+viewReset.addEventListener('click', () => bench?.resetView())
 const inspectors = [learnSheet, huygensSheet]
 const opener = (sheet: HTMLElement) => q(sheet === learnSheet ? '[data-learn]' : '[data-huygens]')
 
@@ -169,6 +172,8 @@ function labels() {
   q('[data-scale]').title = `${s.simulation}: ${s.timeScale}. ${s.timeScaleNote}`
   q('[data-scale] option:last-child').textContent = '×∞' // short for the phone topbar; the title names it
   q('[data-scale] option:last-child').title = s.instant
+  viewReset.textContent = at().resetView
+  viewReset.title = at().resetViewHint
   q('[data-huygens]').setAttribute('aria-label', s.huygens)
   q('[data-huygens]').title = s.huygens
   q('[data-learn]').textContent = pt().learn
@@ -575,6 +580,8 @@ function frame(now: number) {
   // Meanwhile its instruction stays on show over the goniometer.
   const act = learnSheet.dataset.open === 'true' ? null : learn.actText()
   if (actStrip.hidden !== (act === null)) actStrip.hidden = act === null
+  const showReset = !!bench?.assemblyActive() && focus === 'room'
+  if (viewReset.hidden === showReset) viewReset.hidden = !showReset
   if (act !== null && actStrip.textContent !== act) actStrip.textContent = act
   sound.render()
   keepAwake(apparatus.busy)

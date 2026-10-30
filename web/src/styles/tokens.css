@@ -41,8 +41,13 @@
   --led-bg: #0b0b0c; --led-on: #ff3b30; --led-glow: 0 0 6px rgba(255, 59, 48, 0.55);
 
   /* 3D bench: the objects keep their colours in both themes, only the table follows the room light. */
-  --bench-housing: #d4d6d9; --bench-trim: #3a3b3f; --bench-ink: #f2f2f4; --bench-metal: #9a9ea5;
+  --bench-housing: #cfccc5; --bench-trim: #3a3b3f; --bench-ink: #f2f2f4; --bench-metal: #9a9ea5;
   --bench-glass: #b9c7bd; --bench-table: #e4ded3;
+  /* Materials of the apparatus: warm grey powder coat, white plate, black plastic, metals, glass, crystal. */
+  --bench-edge: #b4b1aa; --bench-panel: #d9d8d3; --bench-white: #e9e8e4; --bench-black: #17171a;
+  --bench-steel: #b9bdc2; --bench-alu: #d2d5d9; --bench-brass: #b8923f; --bench-bronze: #94603a;
+  --bench-copper: #b86a3e; --bench-iron: #6b6e73; --bench-zirc: #8d9094; --bench-silver: #eceef0;
+  --bench-amber: #e0891f; --bench-crystal: #e6f1f4;
   --bench-light: 1; /* scene light strength; dimmer in dark mode */
   --dur-camera: 700ms; /* the camera flying to a part of the bench */
 }

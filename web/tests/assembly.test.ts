@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { Assembly, partsFor, sameSetup, stepsFor, type Part, type Zone } from '../src/apparatus/assembly'
+import { Assembly, EXPERIMENTS, partsFor, sameSetup, stepsFor, zonesOf, type Part, type Zone } from '../src/apparatus/assembly'
 
 const ok = { ok: true }
 function run(a: Assembly) {
@@ -22,10 +22,21 @@ const ids = (e: 'bragg' | 'attenuation') => stepsFor(e).map((s) => s.id)
 
 describe('step sequences', () => {
   test('bragg', () => {
-    expect(ids('bragg')).toEqual(['collimator', 'goniometer', 's1', 'ribbonCable', 'counterCap', 'counter', 'counterCable', 's2', 'naclCrystal', 'door', 'zero'])
+    expect(ids('bragg')).toEqual(['collimator', 's1', 'counterCap', 'counter', 'counterCable', 's2', 'naclCrystal', 'door', 'zero'])
+  })
+  test('the goniometer and its ribbon cable are permanently installed: no step, part or zone for them', () => {
+    for (const e of EXPERIMENTS) {
+      expect(ids(e)).not.toContain('goniometer')
+      expect(ids(e)).not.toContain('ribbonCable')
+      expect(partsFor(e) as readonly string[]).not.toContain('goniometer')
+      expect(partsFor(e) as readonly string[]).not.toContain('ribbonCable')
+      expect(zonesOf(e) as readonly string[]).not.toContain('guideRods')
+      expect(zonesOf(e) as readonly string[]).not.toContain('ribbonSocket')
+      expect(stepsFor(e)).toHaveLength(e === 'bragg' ? 9 : 10)
+    }
   })
   test('attenuation', () => {
-    expect(ids('attenuation')).toEqual(['collimator', 'goniometer', 'ribbonCable', 'counterCap', 'counter', 'counterCable', 'targetStage', 'absorbersI', 's1', 's2', 'door', 'zero'])
+    expect(ids('attenuation')).toEqual(['collimator', 'counterCap', 'counter', 'counterCable', 'targetStage', 'absorbersI', 's1', 's2', 'door', 'zero'])
   })
   test('tray order is a fixed shuffle with the distractors mixed in', () => {
     for (const e of ['bragg', 'attenuation'] as const) {
@@ -55,9 +66,9 @@ describe('initial state', () => {
 describe('place', () => {
   test('notYet, wrongZone, alreadyPlaced, wrongPart', () => {
     const a = new Assembly('bragg')
-    expect(a.place('goniometer', 'guideRods')).toEqual({ ok: false, reason: 'notYet' })
+    expect(a.place('counter', 'sensorSeat')).toEqual({ ok: false, reason: 'notYet' })
     expect(a.place('counterCap', 'tray')).toEqual({ ok: false, reason: 'notYet' })
-    expect(a.place('collimator', 'guideRods')).toEqual({ ok: false, reason: 'wrongZone' })
+    expect(a.place('collimator', 'sensorSeat')).toEqual({ ok: false, reason: 'wrongZone' })
     expect(a.place('collimator', 'collimatorMount')).toEqual(ok)
     expect(a.mounted('collimator')).toBe(true)
     expect(a.place('collimator', 'collimatorMount')).toEqual({ ok: false, reason: 'alreadyPlaced' })
@@ -78,10 +89,9 @@ describe('place', () => {
   test('the loose counter is in the chamber during the cap step only (never a second source in the tray)', () => {
     const a = new Assembly('bragg')
     expect(a.inChamber('counter')).toBe(false)
-    for (const [p, z] of [['collimator', 'collimatorMount'], ['goniometer', 'guideRods']] as const) a.place(p, z)
+    a.place('collimator', 'collimatorMount')
     a.setDistance('s1', 5)
     a.commitDistance('s1')
-    a.place('ribbonCable', 'ribbonSocket')
     expect(a.current()?.id).toBe('counterCap')
     expect(a.inChamber('counter')).toBe(true)
     a.place('counterCap', 'tray')
@@ -90,7 +100,7 @@ describe('place', () => {
   test('zonesFor shows only the current step', () => {
     const a = new Assembly('bragg')
     expect(a.zonesFor('collimator')).toEqual(['collimatorMount'])
-    expect(a.zonesFor('goniometer')).toEqual([])
+    expect(a.zonesFor('counter')).toEqual([])
   })
   test('door must be open to move parts', () => {
     const a = new Assembly('bragg')
@@ -105,7 +115,6 @@ describe('distances', () => {
   test('tolerance and clamp', () => {
     const a = new Assembly('bragg')
     a.place('collimator', 'collimatorMount')
-    a.place('goniometer', 'guideRods')
     expect(a.current()?.id).toBe('s1')
     expect(a.setDistance('s2', 6)).toBe(false) // not the current step: refused
     expect(a.distance('s2')).toBe(9)
@@ -115,14 +124,13 @@ describe('distances', () => {
     expect(a.current()?.id).toBe('s1') // in tolerance, but nothing completes until released
     expect(a.commitDistance('s2')).toBe(false)
     expect(a.commitDistance('s1')).toBe(true)
-    expect(a.current()?.id).toBe('ribbonCable')
+    expect(a.current()?.id).toBe('counterCap')
     expect(a.setDistance('s1', 9)).toBe(false) // done: locked
     expect(a.distance('s1')).toBe(5.4)
   })
   test('a value passing through the tolerance band mid-drag does not complete the step', () => {
     const a = new Assembly('bragg')
     a.place('collimator', 'collimatorMount')
-    a.place('goniometer', 'guideRods')
     for (const cm of [8, 6, 5, 4, 2]) a.setDistance('s1', cm) // dragged across the band 4.5 to 5.5
     expect(a.current()?.id).toBe('s1')
     expect(a.commitDistance('s1')).toBe(false) // released at 2.0: out of tolerance
@@ -132,7 +140,6 @@ describe('distances', () => {
   test('clamp to the slider range', () => {
     const a = new Assembly('bragg')
     a.place('collimator', 'collimatorMount')
-    a.place('goniometer', 'guideRods')
     a.setDistance('s1', 99)
     expect(a.distance('s1')).toBe(12)
   })

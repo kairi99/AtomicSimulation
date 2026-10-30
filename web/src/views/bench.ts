@@ -9,6 +9,8 @@
 // counter-clockwise); the crystal lies flat on the target stage (the stage stays in the Bragg set-up) at 0°. Built from primitives in code, no LD images or models. Scene units: cm.
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { WHEEL_WINDOW_DEG, type Apparatus, type Key, type Setup } from '../apparatus/apparatus'
 import type { BenchAssemblyHooks, Distance, Part, Zone } from '../apparatus/assembly'
 import { getLang, t } from '../i18n'
@@ -16,10 +18,12 @@ import { getMode } from '../pedagogy/mode'
 import { WHEELS_MG_CM2 } from '../physics/tables'
 import { armEaser, dpr, palette, paletteVersion, reducedMotion, type Palette } from './canvas'
 import { at } from './assembly-i18n'
+import { buildCap, buildCollimator, buildCounter, buildFilterCap, buildHolderBox, buildStrip, buildTube, STRIP_R_CM, stripGeometry, makeMats, stageDiscGeometry } from './bench-models'
+import { drawPanelFace } from './bench-panel-face'
 import { fitPoints, freeArea, hitSizeCm, pxPerCm, s1FromRay, s2FromRay, type Reserve, type V3 } from './bench-assembly-geometry'
 import { tableLayout, tableRect, tableSpots } from './bench-table-layout'
 import { PLATE_R_CM, S1_CM } from './goniometer'
-import { GROUPS, keySelected } from './panel'
+import { keySelected } from './panel'
 
 export type Focus = 'room' | 'panel' | 'monitor' | 'chamber'
 export type Pick = Exclude<Focus, 'room'> | 'door'
@@ -31,20 +35,21 @@ const RAD = Math.PI / 180
 const W = 67
 const H = 48
 const D = 35
-const FLOOR = 4.5 // chamber floor above the table (feet and base plate)
+const FLOOR = 8 // chamber floor above the table (feet and plinth)
 const CEIL = H - 2
 const COL_X = -W / 2 + 17 // right edge of the panel column
 const WALL_X = 1 // wall between the tube chamber and the experiment chamber
 const BEAM_Y = 20
 const ANODE_X = (COL_X + WALL_X) / 2
 const SLIT_X = WALL_X + 5 // collimator slit, s₁ before the goniometer axis
-const DOOR_TOP = 31 // lead-glass window above the experiment chamber door
+const DOOR_TOP = 40 // lead-glass window above the experiment chamber door
 const DOOR_W = W / 2 - WALL_X - 1.5
 const DOOR_SLIDE = WALL_X + 0.75 - COL_X // open, it stops at the panel column
-const PANEL = { x: (-W / 2 + COL_X) / 2, y: 35, w: 15, h: 21 } // control panel face
-const PX_PER_CM = 80 // panel texture resolution
+const PANEL = { x: (-W / 2 + COL_X) / 2, y: 27.5, w: 15.5, h: 28 } // control panel face
+const PX_PER_CM = 64 // panel texture resolution
 const MONITOR = { x: 60, z: -4, yaw: -0.35, w: 44, h: 27.5, y: 34 } // a 20″ screen
 const DASH_CM_PER_S = 3 // the beam's dashes travel while the tube emits
+const LIGHT_BASE = 0.9 // light strength at --bench-light: 1
 const TAP_PX = 6 // a pointer moving further is an orbit drag, not a tap
 
 /** Mounts the bench on `canvas`. Throws if WebGL is unavailable (the caller falls back to the cards). */
@@ -67,11 +72,16 @@ export function mountBench(
   })
   let dirty = true
   controls.enabled = false // until the first layout places the camera
-  // White light; its strength follows --bench-light (dimmer in dark mode, so the housing doesn't glare).
-  const sky = new THREE.HemisphereLight(0xffffff, 0xffffff, 2.2)
-  const sun = new THREE.DirectionalLight(0xffffff, 2.2)
+  // White light; its strength follows --bench-light (dimmer in dark mode, so the housing doesn't glare). The metals need something
+  // to reflect: a small studio-room environment, baked once.
+  const sky = new THREE.HemisphereLight(0xffffff, 0xffffff, LIGHT_BASE)
+  const sun = new THREE.DirectionalLight(0xffffff, LIGHT_BASE)
   sun.position.set(-40, 90, 70)
   scene.add(sky, sun)
+  const pmrem = new THREE.PMREMGenerator(renderer)
+  const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+  scene.environment = envTex
+  pmrem.dispose()
 
   // Materials take their colour from the design tokens, re-read when the theme changes.
   const tinted: [THREE.Material & { color: THREE.Color }, Colour][] = []
@@ -85,10 +95,10 @@ export function mountBench(
     tinted.push([m, c])
     return m
   }
-  const housing = matte('bench-housing')
-  const trim = matte('bench-trim')
-  const metal = matte('bench-metal', { roughness: 0.4, metalness: 0.6 })
-  const glass = matte('bench-glass', { transparent: true, opacity: 0.15, roughness: 0.1, depthWrite: false })
+  const M = makeMats(matte)
+  const housing = M.housing
+  const trim = M.plastic
+  const glass = matte('bench-glass', { transparent: true, opacity: 0.15, roughness: 0.08, depthWrite: false })
   const pickables: THREE.Object3D[] = []
   const box = (w: number, h: number, d: number, m: THREE.Material, x: number, y: number, z: number, p?: Pick) => {
     const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m)
@@ -107,8 +117,40 @@ export function mountBench(
     return o
   }
 
-  // Table with a soft contact shadow under each object.
-  const table = matte('bench-table', { roughness: 0.9 })
+  const at3 = <T extends THREE.Object3D>(o: T, x: number, y: number, z: number) => (o.position.set(x, y, z), o)
+  /** One geometry from several meshes (their own transforms baked in): a draw call instead of many. */
+  const merge = (meshes: THREE.Mesh[]) => {
+    const gs = meshes.map((m) => {
+      m.updateMatrix()
+      return m.geometry.clone().applyMatrix4(m.matrix)
+    })
+    return mergeGeometries(gs)!
+  }
+
+  // Table: a light granite countertop (a speckled canvas texture, multiplied with the theme's table colour).
+  const granite = (() => {
+    const c = document.createElement('canvas')
+    c.width = c.height = 512
+    const g = c.getContext('2d')!
+    g.fillStyle = '#fff'
+    g.fillRect(0, 0, 512, 512)
+    let seed = 7
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
+    for (let i = 0; i < 2400; i++) {
+      const dark = rnd() < 0.75
+      g.fillStyle = dark ? `rgba(50,44,56,${0.05 + rnd() * 0.2})` : `rgba(120,80,84,${0.04 + rnd() * 0.1})`
+      g.beginPath()
+      g.ellipse(rnd() * 512, rnd() * 512, 0.7 + rnd() * (dark ? 2.6 : 3.2), 0.7 + rnd() * 2.2, rnd() * 3, 0, 2 * Math.PI)
+      g.fill()
+    }
+    const tex = new THREE.CanvasTexture(c)
+    tex.colorSpace = THREE.SRGBColorSpace
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping
+    tex.repeat.set(7, 3.5)
+    tex.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy())
+    return tex
+  })()
+  const table = matte('bench-table', { roughness: 0.5, map: granite })
   scene.add(box(210, 3, 105, table, 18, -1.5, 10))
   for (const [x, z] of [[-82, -38], [118, -38], [-82, 48], [118, 48]]) scene.add(box(4, 70, 4, table, x, -38, z))
   const shade = document.createElement('canvas')
@@ -127,97 +169,148 @@ export function mountBench(
     scene.add(s)
   }
 
-  // Housing: base, roof, back, sides, the panel column, the chamber wall and the front frames.
+  // Housing: feet, plinth with the connector strip, floor slab, roof, back, sides, the panel column, the chamber wall and the
+  // front frames. Warm-grey powder coat, stainless frames, white liners in the experiment chamber, dark ones in the tube chamber.
   const dev = new THREE.Group()
   scene.add(dev)
-  for (const [x, z] of [[-W / 2 + 4, -D / 2 + 4], [W / 2 - 4, -D / 2 + 4], [-W / 2 + 4, D / 2 - 4], [W / 2 - 4, D / 2 - 4]]) {
-    dev.add(box(4, 1.5, 4, trim, x, 0.75, z))
+  const feet = merge(
+    [[-W / 2 + 4, -D / 2 + 4], [W / 2 - 4, -D / 2 + 4], [-W / 2 + 4, D / 2 - 4], [W / 2 - 4, D / 2 - 4]].map(([x, z]) => at3(cyl(1.5, 1.2, M.black, 'y', 16), x, 0.6, z)),
+  )
+  dev.add(new THREE.Mesh(feet, M.black))
+  dev.add(box(W + 1.2, FLOOR - 2, D + 1, housing, 0, (FLOOR + 1.2) / 2 - 0.4, 0)) // plinth, a little wider than the body
+  dev.add(box(W, 0.8, D, housing, 0, FLOOR - 0.4, 0))
+  const handleMat = matte('bench-metal', { roughness: 0.5 })
+  const roof = new THREE.Group() // cut away while assembling: the camera looks down into the chamber
+  roof.add(box(W, H - CEIL, D, housing, 0, (H + CEIL) / 2, 0), box(W + 0.4, 0.7, 0.5, M.edge, 0, H - 0.35, D / 2 + 0.05))
+  for (const x of [-W / 2 + 8, W / 2 - 8]) {
+    // carry handles on the top corners: a flat grey strap on two posts
+    roof.add(box(2.4, 0.7, 10, handleMat, x, H + 1.6, 0), box(2.4, 1.6, 1, handleMat, x, H + 0.8, -4.5), box(2.4, 1.6, 1, handleMat, x, H + 0.8, 4.5))
   }
-  dev.add(box(W, FLOOR - 1.5, D, housing, 0, (FLOOR + 1.5) / 2, 0))
-  const roof = box(W, H - CEIL, D, housing, 0, (H + CEIL) / 2, 0) // cut away while assembling: the camera looks down into the chamber
   dev.add(roof)
   dev.add(box(W, CEIL - FLOOR, 1, housing, 0, (CEIL + FLOOR) / 2, -D / 2 + 0.5))
   dev.add(box(COL_X + W / 2, CEIL - FLOOR, D, housing, (COL_X - W / 2) / 2, (CEIL + FLOOR) / 2, 0))
   dev.add(box(1, CEIL - FLOOR, D, housing, W / 2 - 0.5, (CEIL + FLOOR) / 2, 0))
   dev.add(box(1.5, CEIL - FLOOR, D, housing, WALL_X, (CEIL + FLOOR) / 2, 0))
-  for (const x of [-W / 2 + 0.5, W / 2 - 0.5]) dev.add(box(1, 3, 12, trim, x + Math.sign(x) * 1, 38, 0)) // handles
-  // Front frames round both doors and the window, a little proud of the chambers.
+  // Liners. Experiment chamber: off-white walls and floor with a few countersunk screw holes. Tube chamber: dark.
+  const IH = CEIL - FLOOR
+  const liner = matte('bench-panel', { roughness: 0.6 }) // the chamber's light-grey walls and floor, a shade below the white plate
+  const [ex0, ex1] = [WALL_X + 0.75 + 0.1, W / 2 - 1.1]
+  dev.add(box(ex1 - ex0, IH, 0.2, liner, (ex0 + ex1) / 2, (CEIL + FLOOR) / 2, -D / 2 + 1.1))
+  dev.add(box(ex1 - ex0, 0.2, D - 2, liner, (ex0 + ex1) / 2, FLOOR + 0.1, 0))
+  dev.add(box(0.2, IH, D - 2, liner, ex1 + 0.1, (CEIL + FLOOR) / 2, 0))
+  dev.add(box(0.2, IH, D - 2, liner, ex0 - 0.1, (CEIL + FLOOR) / 2, 0))
+  const holes = (r: number, ps: [number, number][]) =>
+    merge(ps.map(([x, z]) => at3(new THREE.Mesh(new THREE.CircleGeometry(r, 14).rotateX(-Math.PI / 2)), x, FLOOR + 0.23, z)))
+  const SCREWS: [number, number][] = [[7, 12], [22, 9], [30, 13], [15, -6], [27, -11], [5, -13]]
+  dev.add(new THREE.Mesh(holes(0.55, SCREWS), M.black), new THREE.Mesh(holes(0.28, SCREWS).translate(0, 0.01, 0), M.steel))
+  const [tx0, tx1] = [COL_X + 0.1, WALL_X - 0.75 - 0.1]
+  dev.add(box(tx1 - tx0, IH, 0.2, M.black, (tx0 + tx1) / 2, (CEIL + FLOOR) / 2, -D / 2 + 1.1))
+  dev.add(box(tx1 - tx0, 0.2, D - 2, M.black, (tx0 + tx1) / 2, FLOOR + 0.1, 0))
+  dev.add(box(0.2, IH, D - 2, M.black, tx0 + 0.1, (CEIL + FLOOR) / 2, 0))
+  dev.add(box(0.2, IH, D - 2, M.black, tx1 - 0.1, (CEIL + FLOOR) / 2, 0))
+  // Front frames round both doors and the window, a little proud of the chambers (brushed stainless).
   const zf = D / 2 - 0.5
-  const topFrame = box(W / 2 - WALL_X, 1.5, 1, housing, (W / 2 + WALL_X) / 2, DOOR_TOP, zf) // hides the arm's top when seen from the front
+  const topFrame = box(W / 2 - WALL_X, 1.5, 1, M.steel, (W / 2 + WALL_X) / 2, DOOR_TOP, zf) // hides the arm's top when seen from the front
   dev.add(topFrame)
-  dev.add(box(1.5, CEIL - FLOOR, 1, housing, WALL_X, (CEIL + FLOOR) / 2, zf))
+  dev.add(box(2.2, CEIL - FLOOR, 1, M.steel, WALL_X, (CEIL + FLOOR) / 2, zf))
+  dev.add(box(1.2, CEIL - FLOOR, 1, M.steel, COL_X + 0.4, (CEIL + FLOOR) / 2, zf))
+  dev.add(box(WALL_X - COL_X, 1.2, 1, M.steel, (COL_X + WALL_X) / 2, FLOOR + 0.2, zf)) // sill under the tube chamber
   const window_ = box(W / 2 - WALL_X - 1, CEIL - DOOR_TOP - 1, 0.4, glass, (W / 2 + WALL_X) / 2, (CEIL + DOOR_TOP) / 2, zf, 'chamber')
   dev.add(window_)
-  const tubeDoor = box(WALL_X - COL_X - 1, CEIL - FLOOR - 1, 0.4, glass, (WALL_X + COL_X) / 2, (CEIL + FLOOR) / 2, D / 2 + 0.2)
+  const tubeDoor = box(WALL_X - COL_X - 1.4, CEIL - FLOOR - 1, 0.4, glass, (WALL_X + COL_X) / 2, (CEIL + FLOOR) / 2, D / 2 + 0.2)
   dev.add(tubeDoor)
-  // Fluorescent screen (D = 15 cm) closing the far side of the experiment chamber.
-  const screen = cyl(7.5, 0.4, trim, 'x', 48)
-  screen.position.set(W / 2 + 0.2, BEAM_Y, 0)
-  dev.add(screen)
+  // The large round black port on the right wall of the experiment chamber.
+  const port = cyl(8.2, 0.3, matte('bench-black', { roughness: 0.28 }), 'x', 48)
+  port.position.set(ex1 - 0.05, BEAM_Y, 0)
+  const portRim = cyl(8.8, 0.2, M.white, 'x', 48)
+  portRim.position.set(ex1 - 0.1, BEAM_Y, 0)
+  dev.add(portRim, port)
 
-  // Experiment chamber door: lead glass in a frame, sliding left on its own rail in front of the tube chamber.
+  // Experiment chamber door: glass in a stainless frame with a vertical handle at its right edge, sliding left on its own
+  // rail in front of the tube chamber.
   const door = new THREE.Group()
   const doorH = DOOR_TOP - FLOOR - 1
-  const pane = box(DOOR_W - 1.6, doorH - 1.6, 0.4, glass, 0, 0, 0)
+  const pane = box(DOOR_W - 2.2, doorH - 1.6, 0.4, glass, 0.2, 0, 0)
   door.add(pane)
-  for (const y of [-doorH / 2 + 0.4, doorH / 2 - 0.4]) door.add(box(DOOR_W, 0.8, 0.8, trim, 0, y, 0))
-  for (const x of [-DOOR_W / 2 + 0.4, DOOR_W / 2 - 0.4]) door.add(box(0.8, doorH, 0.8, trim, x, 0, 0))
-  door.add(box(0.8, 5, 1.6, trim, -DOOR_W / 2 + 2.5, 0, 0.8)) // grip
+  for (const y of [-doorH / 2 + 0.4, doorH / 2 - 0.4]) door.add(box(DOOR_W, 0.8, 0.8, M.steel, 0, y, 0))
+  door.add(box(1.4, doorH, 0.8, M.steel, -DOOR_W / 2 + 0.7, 0, 0), box(1, doorH, 0.8, M.steel, DOOR_W / 2 - 0.5, 0, 0))
+  door.add(box(0.7, 10, 0.7, M.steel, DOOR_W / 2 - 1.6, 0, 1.5), box(0.5, 0.5, 1.2, M.steel, DOOR_W / 2 - 1.6, 4.3, 0.9), box(0.5, 0.5, 1.2, M.steel, DOOR_W / 2 - 1.6, -4.3, 0.9)) // handle
   pick(door, 'door')
   pane.userData.glass = true // open or locked, taps pass through the glass: only the frame and grip answer
   const doorX = (W / 2 + WALL_X) / 2
   door.position.set(doorX, FLOOR + 0.5 + doorH / 2, D / 2 + 1)
   dev.add(door)
 
-  // Control panel face: displays, key LEDs and labels are a texture, the ADJUST knob a real knob.
+  // Control panel face: light grey, with the displays, keys, LEDs and labels as a texture, the ADJUST knob a real knob.
   const panelCanvas = document.createElement('canvas')
   panelCanvas.width = PANEL.w * PX_PER_CM
   panelCanvas.height = PANEL.h * PX_PER_CM
   const panelTex = new THREE.CanvasTexture(panelCanvas)
+  dev.add(box(PANEL.w + 1.2, PANEL.h + 1.2, 0.2, M.edge, PANEL.x, PANEL.y, D / 2 + 0.1))
   const panelFace = new THREE.Mesh(new THREE.PlaneGeometry(PANEL.w, PANEL.h), new THREE.MeshBasicMaterial({ map: panelTex, toneMapped: false }))
-  panelFace.position.set(PANEL.x, PANEL.y, D / 2 + 0.02)
+  panelFace.position.set(PANEL.x, PANEL.y, D / 2 + 0.21)
   dev.add(pick(panelFace, 'panel'))
-  const KNOB_PX = { x: PANEL.w / 2, y: 17.2 } // cm from the panel's top left
+  const KNOB_PX = { x: 4.7, y: 12.7 } // cm from the panel's top left
   const knob = new THREE.Group()
-  const knobBody = cyl(1.6, 1.4, trim, 'z', 40)
-  const notch = box(0.3, 1.1, 0.2, glow('accent', { opacity: 1 }), 0, 0.9, 0.75)
-  knob.add(knobBody, notch)
-  knob.position.set(PANEL.x - PANEL.w / 2 + KNOB_PX.x, PANEL.y + PANEL.h / 2 - KNOB_PX.y, D / 2 + 0.7)
+  const knobBody = cyl(2.2, 1.2, M.black, 'z', 40)
+  const knobFace = cyl(1.9, 0.1, matte('bench-black', { roughness: 0.25 }), 'z', 40)
+  knobFace.position.z = 0.6
+  const notch = box(0.3, 1.0, 0.2, glow('accent', { opacity: 1 }), 0, 1.3, 0.7)
+  knob.add(knobBody, knobFace, notch)
+  knob.position.set(PANEL.x - PANEL.w / 2 + KNOB_PX.x, PANEL.y + PANEL.h / 2 - KNOB_PX.y, D / 2 + 0.8)
   dev.add(pick(knob, 'panel'))
-  // Connection panel below it: GM TUBE, HV OUT and the BNC sockets.
-  dev.add(box(PANEL.w, 14, 0.2, trim, PANEL.x, 14, D / 2 + 0.1))
-  for (const [x, y] of [[-4, 17], [0, 17], [4, 17], [-2, 11], [2, 11]]) {
-    const s = cyl(0.7, 0.8, metal, 'z', 16)
-    s.position.set(PANEL.x + x, y, D / 2 + 0.4)
-    dev.add(s)
+  // Connector strip in the plinth: USB, HV IN (round), SIGNAL OUT (BNC), ANGLE and RATE (banana jacks).
+  const STRIP = { x: -22.3, y: 3.7, w: 15.8, h: 3.7 }
+  const PZ = (D + 1) / 2 // the plinth's front face
+  dev.add(box(STRIP.w + 0.5, STRIP.h + 0.5, 0.1, M.edge, STRIP.x, STRIP.y, PZ + 0.05), box(STRIP.w, STRIP.h, 0.1, M.white, STRIP.x, STRIP.y, PZ + 0.1))
+  const stripCanvas = document.createElement('canvas')
+  stripCanvas.width = 632
+  stripCanvas.height = 240
+  const stripTex = new THREE.CanvasTexture(stripCanvas)
+  stripTex.colorSpace = THREE.SRGBColorSpace
+  const stripLabels = new THREE.Mesh(new THREE.PlaneGeometry(15.8, 6), new THREE.MeshBasicMaterial({ map: stripTex, transparent: true, toneMapped: false, depthWrite: false }))
+  stripLabels.position.set(STRIP.x, 3.95, PZ + 0.02)
+  dev.add(stripLabels)
+  const JACK_Z = PZ + 0.15
+  const redMat = matte('danger', { roughness: 0.4 })
+  const blueMat = matte('accent', { roughness: 0.4 })
+  const redJacks: THREE.Mesh[] = []
+  const blueJacks: THREE.Mesh[] = []
+  const steelJacks: THREE.Mesh[] = []
+  const holesJ: THREE.Mesh[] = []
+  const jack = (list: THREE.Mesh[], r: number, len: number, x: number, y: number, hole = 0) => {
+    list.push(at3(cyl(r, len, M.steel, 'z', 18), x, y, JACK_Z + len / 2))
+    if (hole) holesJ.push(at3(cyl(hole, len + 0.05, M.black, 'z', 12), x, y, JACK_Z + len / 2 + 0.02))
+  }
+  jack(steelJacks, 1.15, 0.8, -23.3, STRIP.y, 0.85) // HV IN
+  jack(steelJacks, 0.7, 0.9, -20.5, STRIP.y, 0.3) // SIGNAL OUT
+  holesJ.push(at3(box(1.4, 1.0, 0.4, M.black, 0, 0, 0), -26.6, STRIP.y, JACK_Z + 0.2)) // USB
+  for (const [x, y, list] of [[-18.2, STRIP.y + 1, redJacks], [-16.2, STRIP.y + 1, redJacks], [-18.2, STRIP.y - 1, blueJacks], [-16.2, STRIP.y - 1, blueJacks]] as const) {
+    list.push(at3(cyl(0.5, 0.6, list === redJacks ? redMat : blueMat, 'z', 14), x, y, JACK_Z + 0.3))
+    holesJ.push(at3(cyl(0.18, 0.65, M.black, 'z', 8), x, y, JACK_Z + 0.32))
+  }
+  for (const [list, mat] of [[redJacks, redMat], [blueJacks, blueMat], [steelJacks, M.steel], [holesJ, M.black]] as const) {
+    dev.add(new THREE.Mesh(merge(list), mat))
   }
 
-  // Tube chamber: the Mo tube stands upright in its lead-glass tube, anode at beam height and cathode above it;
-  // the X-rays leave sideways (+x) through the collimator. Heat sink behind; the cathode glows while HV is on.
-  const leadTube = cyl(5.5, 22, glass, 'y')
-  leadTube.position.set(ANODE_X, BEAM_Y + 5, 0)
-  const bulb = cyl(3, 16, glass, 'y')
-  bulb.position.copy(leadTube.position)
-  const anode = cyl(0.8, 5, metal, 'y', 16)
-  anode.position.set(ANODE_X, BEAM_Y - 2.5, 0)
-  const cathode = cyl(0.6, 5, metal, 'y', 16)
-  cathode.position.set(ANODE_X, BEAM_Y + 8.5, 0)
-  const cathodeGlow = new THREE.Mesh(new THREE.SphereGeometry(0.9, 16, 12), glow('led-on', { opacity: 0 }))
-  cathodeGlow.position.set(ANODE_X, BEAM_Y + 5.5, 0)
-  dev.add(leadTube, bulb, anode, cathode, cathodeGlow, box(10, 16, 3, metal, ANODE_X, BEAM_Y + 4, -D / 2 + 2.5))
-  // Collimator through the chamber wall, ending in the slit.
-  const coll = cyl(1, SLIT_X - WALL_X + 2, metal, 'x', 24)
-  coll.position.set((SLIT_X + WALL_X - 2) / 2, BEAM_Y, 0)
-  dev.add(coll)
+  // Tube chamber: the tube stands upright (finned heat sink, glass envelope with the amber anode at beam height, aluminium
+  // foot); the X-rays leave sideways (+x) through the collimator. The filament glows while HV is on.
+  const tube = buildTube(M, glass, BEAM_Y, FLOOR)
+  tube.g.position.x = ANODE_X
+  const cathodeGlow = new THREE.Mesh(new THREE.SphereGeometry(1.1, 16, 12), glow('led-on', { opacity: 0 }))
+  cathodeGlow.position.set(ANODE_X, BEAM_Y + 5, 0)
+  dev.add(tube.g, cathodeGlow)
 
-  // Goniometer 554 831: its axis is horizontal, along z, on guide rods at the back of the chamber; the round
-  // face stands upright behind the beam. Both arms turn in the x–y plane (rotation about +z: positive = up, as
-  // seen from the front). The target stage sticks out towards the student so the crystal (or the absorber plate)
-  // sits on the beam line at the axis; the counter sits on the sensor arm at s₂ from the axis, window to the axis.
+  // Goniometer 554 831: its axis is horizontal, along z, on guide rods at the back of the chamber; the white plate stands upright
+  // behind the beam on a long base rail with the counter, HV and signal sockets. Both arms turn in the x–y plane (rotation about
+  // +z: positive = up, as seen from the front). The target stage sticks out towards the student so the crystal (or the absorber
+  // strip) sits on the beam line at the axis; the counter sits on the sensor arm at s₂ from the axis, window to the axis.
   // Every Part of the assembly (apparatus/assembly.ts) is its own group, shown only while `assembly.mounted(part)`;
-  // the guide rods belong to the chamber. s₁ and s₂ come from the assembly (the student sets them).
-  const BACK_Z = -9 // the goniometer's face
+  // the goniometer itself, its guide rods and its ribbon cable are permanently installed (not parts) and drawn from the start. s₁ and s₂ come from the assembly (the student sets them).
+  const BACK_Z = -9 // the plate's front face
   const RODS_Z = -D / 2 + 2
+  const ARM_Z = BACK_Z + 1.4 // the sensor arm's rods, just in front of the plate
+  const STAGE_Z = -1.45 // the target stage's disc
   const dist = { s1: hooks.assembly.distance('s1'), s2: hooks.assembly.distance('s2') }
   // Leaflet P6.3.2.1 measures the attenuation set-up to the EMPTY WINDOW of the absorber set (a point PLATE_R_CM beyond the
   // axis): s₁ from the collimator slit to it, s₂ from it to the sensor slit. Bragg measures to the target axis.
@@ -225,129 +318,182 @@ export function mountBench(
   const refCm = () => (hooks.assembly.experiment === 'attenuation' ? PLATE_R_CM : 0)
   const axisX = () => SLIT_X + Math.max(1, dist.s1 - refCm())
   const s2Len = () => dist.s2 + refCm() // counter window along the sensor arm, from the axis
-  for (const y of [-7.5, 7.5]) {
-    const rod = cyl(0.3, 26, metal, 'x', 12) // guide rods the unit slides on
-    rod.position.set(SLIT_X + 13, BEAM_Y + y, RODS_Z)
+  const RAIL = { x0: 3, x1: 32.4, h: 5, z0: -13.6, z1: -8.2 }
+  const railX = (RAIL.x0 + RAIL.x1) / 2
+  dev.add(box(RAIL.x1 - RAIL.x0, RAIL.h, RAIL.z1 - RAIL.z0, M.white, railX, FLOOR + RAIL.h / 2, (RAIL.z0 + RAIL.z1) / 2))
+  for (const y of [BEAM_Y + 13.4, BEAM_Y - 5]) {
+    const rod = cyl(0.4, RAIL.x1 - RAIL.x0 + 1, M.steel, 'x', 12) // guide rods the unit slides on
+    rod.position.set(railX, y, RODS_Z)
     dev.add(rod)
   }
-  const goniW = new THREE.Group() // wrapper: the snap-in animation moves it, never the gonio group itself
-  dev.add(goniW)
   const gonio = new THREE.Group()
   gonio.position.set(axisX(), BEAM_Y, 0)
-  goniW.add(gonio)
-  const disc = cyl(6, 1, metal, 'z', 48)
-  disc.position.z = BACK_Z
-  const guide = cyl(0.7, D / 2 - 1 + BACK_Z, metal, 'z', 12) // support from the back wall
-  guide.position.z = (BACK_Z + (-D / 2 + 1)) / 2
-  const carriage = box(3, 18, 1.4, metal, 0, 0, RODS_Z) // slides on both rods
-  gonio.add(disc, guide, carriage)
+  dev.add(gonio)
+  gonio.add(box(13, 21, 0.6, M.white, 0, 3.5, BACK_Z - 0.3))
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(5.8, 5.8, 0.16, 48, 1, false, Math.PI / 2, Math.PI).rotateX(Math.PI / 2), M.alu) // brushed-aluminium semicircle round the axis
+  disc.position.z = BACK_Z + 0.08
+  gonio.add(disc)
+  const heads: THREE.Mesh[] = []
+  const crosses: THREE.Mesh[] = []
+  for (const [x, y] of [[-5.6, 12.8], [5.6, 12.8], [-5.6, -5.9], [5.6, -5.9], [-1.7, 9.8], [1.7, 9.8]]) {
+    heads.push(at3(cyl(0.4, 0.12, M.steel, 'z', 12), x, y, BACK_Z + 0.06))
+    crosses.push(at3(box(0.5, 0.08, 0.05, M.black, 0, 0, 0), x, y, BACK_Z + 0.13), at3(box(0.08, 0.5, 0.05, M.black, 0, 0, 0), x, y, BACK_Z + 0.13))
+  }
+  gonio.add(new THREE.Mesh(merge(heads), M.steel), new THREE.Mesh(merge(crosses), M.black)) // Phillips screw heads
+  const thumbs = [-4.8, 4.8].map((x) => at3(cyl(0.45, 2, M.knurled, 'y', 14), x, -6.4, BACK_Z + 0.5)) // the two knurled thumb screws
+  const carriage: THREE.Mesh[] = []
+  for (const y of [13.4, -5]) {
+    carriage.push(at3(box(4, 1.8, 1.8, M.steel, 0, 0, 0), 0, y, RODS_Z), at3(cyl(0.5, RODS_Z - BACK_Z + 0.6, M.steel, 'z', 10), 0, y, (RODS_Z + BACK_Z - 0.6) / 2))
+  }
+  gonio.add(...thumbs, new THREE.Mesh(merge(carriage), M.steel)) // slides on both rods
   const targetArm = new THREE.Group()
-  const stage = cyl(0.4, -BACK_Z - 1, metal, 'z', 12) // target holder, from the face to the beam line
-  stage.position.set(0, -0.6, BACK_Z / 2 - 0.5)
+  const brassParts = [box(2.8, 4.2, 2.4, M.brass, 1, 0, -5.6), box(3, 0.5, 2.6, M.brass, 1, 2.35, -5.6), cyl(0.5, 2.8, M.brass, 'z', 14)]
+  brassParts[2].position.set(0, 0, -3) // post from the brass block to the stage
+  const stage = new THREE.Mesh(merge(brassParts), M.brass) // the target holder
+  const clamp = new THREE.Group() // thread and black knurled clamp knob on top of the block
+  clamp.add(at3(cyl(0.15, 1.6, M.steel, 'y', 8), 1, 3.4, -5.6), at3(cyl(0.55, 1.5, M.knurledBlack, 'y', 14), 1, 4.4, -5.6))
   const crystalW = new THREE.Group()
-  const crystal = box(2, 0.5, 2, matte('phys-crystal', { roughness: 0.3 }), 0, -0.25, 0) // top face through the axis, flat at 0°
+  const crystal = box(2.6, 0.5, 2.4, M.crystal, 0, -0.25, 0) // top face through the axis, flat at 0°
+  crystal.renderOrder = 2
   crystalW.add(crystal)
   const stageW = new THREE.Group()
-  const stageTable = box(4.4, 0.5, 4.4, matte('bench-trim'), 0, -0.25, 0) // the target stage: under the crystal in Bragg, taken off for the absorbers
-  stageW.add(stageTable)
-  const plate = new THREE.Group() // absorber plate: slot k is on the beam line at β = 10k°
-  targetArm.add(stage, crystalW, stageW, plate)
-  const foilAt = (x: number) => {
-    const f = cyl(0.8, 0.1, metal, 'x', 24)
-    f.position.set(x, 0, 0)
-    return f
-  }
+  const stageTable = new THREE.Group() // the target stage (grey block with its knob): its grab volume hangs here
+  // The target HOLDER (black disc with its slots and curved groove) never leaves the brass block: always drawn, not a Part.
+  const stageDisc = new THREE.Mesh(stageDiscGeometry(), M.black)
+  stageDisc.position.z = STAGE_Z
+  targetArm.add(stageDisc)
+  const holderBox = buildHolderBox(M) // grey crystal holder with its knob: on the stage in the Bragg set-up
+  holderBox.position.y = -0.5
+  stageW.add(stageTable, holderBox)
+  const plate = new THREE.Group() // absorber strip in the holder's groove: slot k is on the beam line at β = 10k°
+  plate.position.z = STAGE_Z + 0.85 // the 4 cm strip straddles the disc's rim
+  targetArm.add(stage, clamp, crystalW, stageW, plate)
   const foilW = new THREE.Group()
-  const collFoil = foilAt(SLIT_X + 0.5) // just past the slit, in the device frame
-  collFoil.position.y = BEAM_Y
+  const collFoil = buildFilterCap(M, 'Zr', palette.font || 'sans-serif') // the Zr cap slips over the collimator tip
+  collFoil.position.set(SLIT_X - 0.3, BEAM_Y, 0)
   foilW.add(collFoil)
   dev.add(foilW)
   const sensorArm = new THREE.Group()
   // ponytail: the counter clears floor and ceiling, but past 2θ ≈ 130° it clips the wall to the tube chamber
-  const armBar = box(1, 1.6, 0.6, metal, 0, 0, BACK_Z + 1) // length and place follow s₂ (applyDist)
-  const capMat = matte('danger')
-  const makeCounter = () => {
-    const g = new THREE.Group()
-    const body = cyl(1.1, 8, trim, 'x') // 559 01 end-window counter: the window faces the axis
-    body.position.x = 4
-    const win = cyl(0.8, 0.1, metal, 'x', 24)
-    win.position.x = -0.05
-    const cap = cyl(1.3, 1.2, capMat, 'x', 24) // protective cap on the window
-    cap.position.x = -0.55
-    g.add(body, win, cap)
-    return { g, body, cap }
+  const armRods = [-2.9, 2.9].map((y) => at3(cyl(0.3, 1, M.steel, 'x', 10), 0, y, ARM_Z)) // two parallel thin rods; length and place follow s₂ (applyDist)
+  const armLeft = box(1.1, 6.6, 1.4, M.alu, -5.9, 0, ARM_Z)
+  const armRight = box(1.3, 6.6, 1.4, M.alu, 0, 0, ARM_Z) // the bracket at the counter end
+  const makeCounter = (postLen: number) => {
+    const c = buildCounter(M, postLen)
+    const cap = buildCap(M) // protective cap on the window
+    cap.position.x = -0.6
+    c.g.add(cap)
+    return { g: c.g, body: c.body, cap }
   }
-  const holder = cyl(0.35, -BACK_Z - 1, metal, 'z', 12) // from the arm at the back to the counter
-  holder.position.set(4, 0, BACK_Z / 2 + 0.5)
   const counterW = new THREE.Group()
-  const cM = makeCounter()
-  const sensorFoil = foilAt(-0.3)
-  cM.g.add(holder, sensorFoil)
+  const cM = makeCounter(-ARM_Z)
+  const sensorFoil = at3(cyl(0.9, 0.1, M.fills[5]!, 'x', 24), -1.4, 0, 0)
+  cM.g.add(sensorFoil)
   counterW.add(cM.g)
-  sensorArm.add(armBar, counterW)
+  sensorArm.add(...armRods, armLeft, armRight, counterW)
   gonio.add(targetArm, sensorArm)
   pick(gonio, 'chamber')
 
-  // Collimator: sits in a groove in the chamber wall (the dark ring stays), shown only once mounted.
-  const grooveRing = cyl(1.4, 0.2, matte('bench-ink'), 'x', 24)
-  grooveRing.position.set(WALL_X + 0.85, BEAM_Y, 0)
-  dev.add(grooveRing)
-  const collW = new THREE.Group()
-  collW.add(coll)
+  // Collimator: a stainless ring on the chamber wall stays; the knurled cone with its brass slit insert is shown once mounted.
+  const grooveRing = cyl(2.7, 0.3, M.steel, 'x', 40)
+  grooveRing.position.set(WALL_X + 1.0, BEAM_Y, 0)
+  const grooveHole = cyl(1.5, 0.05, M.black, 'x', 24)
+  grooveHole.position.set(WALL_X + 1.17, BEAM_Y, 0)
+  dev.add(grooveRing, grooveHole)
+  const collW = buildCollimator(M, WALL_X + 1.3, SLIT_X, BEAM_Y)
   dev.add(collW)
 
-  // Sockets on the chamber's back wall: the goniometer's ribbon cable and "GM TUBE" for the counter's.
-  const SOCK_Z = -D / 2 + 1.3
+  // Sockets: the goniometer's ribbon cable (already plugged in, on the chamber's back wall) and, on the base rail, "GM-TUBE"
+  // for the counter's cable, "HV OUT" and "SIGNAL IN".
+  const RIB_Z = -D / 2 + 1.3
+  const SOCK_Z = RAIL.z1
   const ribbonSock = { x: WALL_X + 4.5, y: BEAM_Y + 13 }
-  const gmSock = { x: WALL_X + 4.5, y: BEAM_Y - 9 }
-  dev.add(box(3.4, 2.4, 0.8, metal, ribbonSock.x, ribbonSock.y, SOCK_Z))
-  const gmBody = cyl(1.1, 0.8, metal, 'z', 20)
-  gmBody.position.set(gmSock.x, gmSock.y, SOCK_Z)
-  dev.add(gmBody)
+  const gmSock = { x: 6.4, y: FLOOR + 2.4 }
+  dev.add(box(3.4, 2.4, 0.8, M.steel, ribbonSock.x, ribbonSock.y, RIB_Z))
+  const railSock = (x: number, r: number, hole: number, round = true) => {
+    const o = new THREE.Group()
+    o.add(at3(cyl(r, 0.5, M.steel, 'z', 20), 0, 0, 0.25), at3(cyl(hole, 0.55, M.black, 'z', 16), 0, 0, 0.27))
+    if (!round) o.add(at3(cyl(0.18, 0.7, M.steel, 'z', 8), 0, 0, 0.35))
+    o.position.set(x, gmSock.y, SOCK_Z)
+    dev.add(o)
+  }
+  railSock(gmSock.x, 1.05, 0.7)
+  railSock(23.8, 0.95, 0.7)
+  railSock(28.2, 0.8, 0.5, false)
   const labelCanvas = document.createElement('canvas')
-  labelCanvas.width = 256
-  labelCanvas.height = 48
+  labelCanvas.width = 1176
+  labelCanvas.height = 200
   const labelTex = new THREE.CanvasTexture(labelCanvas)
   labelTex.colorSpace = THREE.SRGBColorSpace
-  const labelPlane = new THREE.Mesh(new THREE.PlaneGeometry(6, 1.125), new THREE.MeshBasicMaterial({ map: labelTex, transparent: true, toneMapped: false, depthWrite: false }))
-  labelPlane.position.set(gmSock.x, gmSock.y - 2.2, -D / 2 + 1.05)
+  const labelPlane = new THREE.Mesh(new THREE.PlaneGeometry(RAIL.x1 - RAIL.x0, RAIL.h), new THREE.MeshBasicMaterial({ map: labelTex, transparent: true, toneMapped: false, depthWrite: false }))
+  labelPlane.position.set(railX, FLOOR + RAIL.h / 2, SOCK_Z + 0.02)
   dev.add(labelPlane)
   const drawLabel = () => {
     const c = labelCanvas.getContext('2d')!
-    c.clearRect(0, 0, 256, 48)
-    c.fillStyle = palette['bench-ink']
-    c.textAlign = 'center'
+    c.clearRect(0, 0, 1176, 200)
+    c.fillStyle = palette['bench-trim']
+    c.textAlign = 'left'
     c.textBaseline = 'middle'
-    c.font = `600 30px ${palette.font}`
-    c.fillText('GM TUBE', 128, 26)
+    const px = (x: number) => (x - RAIL.x0) * 40
+    c.font = `600 26px ${palette.font}`
+    c.fillText('GM-TUBE', px(gmSock.x + 1.9), 100)
+    c.fillText('HV', px(23.8 + 1.5), 90)
+    c.fillText('SIGNAL', px(28.2 + 1.3), 90)
+    c.font = `500 16px ${palette.font}`
+    c.fillText('OUT', px(23.8 + 1.5), 118)
+    c.fillText('IN', px(28.2 + 1.3), 118)
     labelTex.needsUpdate = true
+    // connector strip on the plinth
+    const s = stripCanvas.getContext('2d')!
+    s.clearRect(0, 0, 632, 240)
+    s.fillStyle = palette['bench-trim']
+    s.textAlign = 'center'
+    s.textBaseline = 'middle'
+    s.font = `500 21px ${palette.font}`
+    for (const [x, label] of [[-26.6, 'USB'], [-23.3, 'HV IN'], [-20.5, 'SIGNAL OUT'], [-18.2, 'ANGLE'], [-16.2, 'RATE']] as const) s.fillText(label, (x - (STRIP.x - 7.9)) * 40, 30)
+    stripTex.needsUpdate = true
   }
 
-  // Ribbon cable: flat, along the back wall from the socket to the carriage (follows s₁).
-  const ribbonW = new THREE.Group()
-  const ribbonMat = matte('label-3', { roughness: 0.6 })
-  const ribH = box(1, 1.8, 0.15, ribbonMat, 0, ribbonSock.y, -D / 2 + 1.1)
-  const ribV = box(1.8, 1, 0.15, ribbonMat, 0, 0, -D / 2 + 1.1)
+  // Ribbon cable: flat, along the back wall from the socket to the carriage (follows s₁). Always drawn: it is permanently connected.
+  const ribbonW = new THREE.Group() // always visible (not an assembly part)
+  const ribbonMat = matte('bench-black', { roughness: 0.6 })
+  const ribH = box(1, 1.8, 0.15, ribbonMat, 0, ribbonSock.y, RIB_Z + 0.2)
+  const ribV = box(1.8, 1, 0.15, ribbonMat, 0, 0, RIB_Z + 0.2)
   ribbonW.add(ribH, ribV)
   dev.add(ribbonW)
 
-  // Counter cable: round, a chain of short rods along a bezier from the counter's rear to the GM TUBE socket.
+  // Counter cable: a round black tube whose rings are rewritten when the arm or the distances move. Leaves the counter's rear
+  // along the arm, droops to the floor and ends in a plug on the GM-TUBE socket.
   const cableW = new THREE.Group()
-  const CABLE_N = 18
-  const cableMat = matte('bench-ink', { roughness: 0.5 })
-  const beadGeo = new THREE.CylinderGeometry(0.2, 0.2, 1, 8)
-  const beads: THREE.Mesh[] = []
-  for (let k = 0; k < CABLE_N; k++) {
-    const m = new THREE.Mesh(beadGeo, cableMat)
-    beads.push(m)
-    cableW.add(m)
+  const CABLE_N = 36
+  const CABLE_R = 6
+  const cablePos = new Float32Array((CABLE_N + 1) * CABLE_R * 3)
+  const cableNor = new Float32Array(cablePos.length)
+  const cableIdx: number[] = []
+  for (let i = 0; i < CABLE_N; i++) {
+    for (let j = 0; j < CABLE_R; j++) {
+      const a = i * CABLE_R + j
+      const b = i * CABLE_R + ((j + 1) % CABLE_R)
+      cableIdx.push(a, a + CABLE_R, b, b, a + CABLE_R, b + CABLE_R)
+    }
   }
+  const cableGeo = new THREE.BufferGeometry()
+  cableGeo.setAttribute('position', new THREE.BufferAttribute(cablePos, 3))
+  cableGeo.setAttribute('normal', new THREE.BufferAttribute(cableNor, 3))
+  cableGeo.setIndex(cableIdx)
+  const cableMesh = new THREE.Mesh(cableGeo, M.black)
+  cableMesh.frustumCulled = false
+  const plug = new THREE.Group()
+  plug.add(at3(cyl(0.7, 2, M.black, 'z', 14), 0, 0, 1.5), at3(cyl(0.85, 0.5, M.steel, 'z', 14), 0, 0, 0.75))
+  plug.position.set(gmSock.x, gmSock.y, SOCK_Z)
+  cableW.add(cableMesh, plug)
   dev.add(cableW)
   const cp = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()]
-  const cA = new THREE.Vector3()
+  const cP = new THREE.Vector3()
+  const cT = new THREE.Vector3()
+  const cN = new THREE.Vector3()
   const cB = new THREE.Vector3()
-  const cDir = new THREE.Vector3()
-  const UP = new THREE.Vector3(0, 1, 0)
+  const cQ = new THREE.Vector3()
   const bez = (t: number, out: THREE.Vector3) => {
     const u = 1 - t
     return out.set(0, 0, 0).addScaledVector(cp[0], u * u * u).addScaledVector(cp[1], 3 * u * u * t).addScaledVector(cp[2], 3 * u * t * t).addScaledVector(cp[3], t * t * t)
@@ -355,21 +501,33 @@ export function mountBench(
   const updateCable = (armRad: number) => {
     const c = Math.cos(armRad)
     const sn = Math.sin(armRad)
-    const r = s2Len() + 8.1
+    const r = s2Len() + 8.9
     cp[0].set(axisX() + c * r, BEAM_Y + sn * r, 0)
-    cp[1].set(cp[0].x + c * 3, cp[0].y + sn * 3, -2)
-    cp[3].set(gmSock.x, gmSock.y, SOCK_Z + 0.6)
-    cp[2].set(cp[3].x + 4, cp[3].y, 7)
-    bez(0, cA)
-    for (let k = 0; k < CABLE_N; k++) {
-      bez((k + 1) / CABLE_N, cB)
-      cDir.subVectors(cB, cA)
-      const len = cDir.length()
-      beads[k].position.addVectors(cA, cB).multiplyScalar(0.5)
-      beads[k].scale.set(1, len * 1.15, 1)
-      beads[k].quaternion.setFromUnitVectors(UP, cDir.divideScalar(len || 1))
-      cA.copy(cB)
+    cp[1].set(cp[0].x + c * 4, Math.max(FLOOR + 1, cp[0].y + sn * 4 - 6), 4)
+    cp[3].set(gmSock.x, gmSock.y, SOCK_Z + 2.5)
+    cp[2].set(cp[3].x + 4, FLOOR + 0.6, cp[3].z + 8)
+    cN.set(0, 0, 1)
+    for (let i = 0; i <= CABLE_N; i++) {
+      bez(i / CABLE_N, cP)
+      bez(Math.min(1, (i + 1) / CABLE_N), cT).sub(bez(Math.max(0, (i - 1) / CABLE_N), cQ)).normalize()
+      cN.addScaledVector(cT, -cN.dot(cT)).normalize() // parallel transport: the ring frame never flips
+      cB.crossVectors(cT, cN)
+      for (let j = 0; j < CABLE_R; j++) {
+        const a = (j / CABLE_R) * 2 * Math.PI
+        const k = (i * CABLE_R + j) * 3
+        const nx = Math.cos(a) * cN.x + Math.sin(a) * cB.x
+        const ny = Math.cos(a) * cN.y + Math.sin(a) * cB.y
+        const nz = Math.cos(a) * cN.z + Math.sin(a) * cB.z
+        cableNor[k] = nx
+        cableNor[k + 1] = ny
+        cableNor[k + 2] = nz
+        cablePos[k] = cP.x + 0.2 * nx
+        cablePos[k + 1] = cP.y + 0.2 * ny
+        cablePos[k + 2] = cP.z + 0.2 * nz
+      }
     }
+    cableGeo.attributes.position.needsUpdate = true
+    cableGeo.attributes.normal.needsUpdate = true
   }
 
   // Beam: dashes travelling from the anode to the target, and the specular reflection at 2β (the direct beam at 0°
@@ -421,7 +579,7 @@ export function mountBench(
 
   // ── Panel face texture ────────────────────────────────────────────────
   const pc = panelCanvas.getContext('2d')!
-  const KEY_ORDER: Key[] = GROUPS.flatMap(([, keys]) => keys)
+  const KEY_ORDER: Key[] = ['U', 'I', 'DT', 'DBETA', 'LIMITS', 'SENSOR', 'TARGET', 'COUPLED', 'ZERO', 'RESET', 'REPLAY', 'SCAN', 'SPEAKER', 'HV']
   let panelSig = ''
   const drawPanel = (): boolean => {
     const d = a.display()
@@ -430,84 +588,14 @@ export function mountBench(
     const top = !(d.blinkTop && blink)
     const bottom = !(d.flashBottom && blink)
     const keys = KEY_ORDER.map((k) => (keySelected(a, k) ? 1 : 0)).join('')
-    const sig = `${d.top}|${d.topUnit}|${d.bottom}|${d.bottomUnit}|${d.symbol}|${lamp}|${top}|${bottom}|${d.blinkTop}|${d.flashBottom}|${keys}|${getLang()}|${paletteVersion}`
+    const sig = `${d.top}|${d.topUnit}|${d.bottom}|${d.bottomUnit}|${d.symbol}|${lamp}|${top}|${bottom}|${d.blinkTop}|${d.flashBottom}|${keys}|${a.mode}|${getLang()}|${paletteVersion}`
     if (sig === panelSig) return false
     panelSig = sig
-    const P = palette
     const s = t()
-    const k = PX_PER_CM
-    pc.fillStyle = P['bench-trim']
-    pc.fillRect(0, 0, panelCanvas.width, panelCanvas.height)
-    // HV lamp and the two LED displays
-    pc.beginPath()
-    pc.arc(0.9 * k, 1.5 * k, 0.35 * k, 0, 2 * Math.PI)
-    pc.fillStyle = lamp ? P['led-on'] : P['led-bg']
-    pc.fill()
-    const led = (y: number, value: string, unit: string, on: boolean, sym = '', flashing = false) => {
-      pc.fillStyle = P['led-bg']
-      pc.beginPath()
-      pc.roundRect(1.7 * k, y, 12.6 * k, 2.4 * k, 0.3 * k)
-      pc.fill()
-      if (flashing && reducedMotion()) {
-        // steady cue instead of blinking, as the HTML panel does
-        pc.strokeStyle = P.danger
-        pc.lineWidth = 0.08 * k
-        pc.stroke()
-      }
-      if (!on) return
-      pc.fillStyle = P['led-on']
-      pc.shadowColor = P['led-on']
-      pc.shadowBlur = 0.25 * k
-      pc.textBaseline = 'middle'
-      pc.textAlign = 'right'
-      pc.font = `${1.7 * k}px ${P.mono}`
-      pc.fillText(value, 11.4 * k, y + 1.25 * k)
-      pc.textAlign = 'left'
-      pc.font = `${0.55 * k}px ${P.mono}`
-      pc.fillText(unit, 11.7 * k, y + 0.8 * k)
-      pc.fillText(sym, 11.7 * k, y + 1.7 * k)
-      pc.shadowBlur = 0
-    }
-    led(0.5 * k, d.top, d.topUnit, top, '', d.blinkTop)
-    led(3.3 * k, d.bottom, d.bottomUnit, bottom, d.symbol === 'lower' ? '▼' : d.symbol === 'upper' ? '▲' : d.symbol === 'exposure' ? '⧗' : '', d.flashBottom)
-    // Key groups: pills with a lit LED where the HTML panel shows aria-pressed.
-    const PILL_W = 2.6
-    let y = 6.6
-    for (const [g, groupKeys] of GROUPS) {
-      pc.fillStyle = P['bench-ink']
-      pc.globalAlpha = 0.7
-      pc.textAlign = 'left'
-      pc.textBaseline = 'alphabetic'
-      pc.font = `600 ${0.42 * k}px ${P.font}`
-      pc.fillText(s[g] as string, 0.5 * k, y * k)
-      pc.globalAlpha = 1
-      for (const [i, key] of groupKeys.entries()) {
-        const x = 0.5 + i * (PILL_W + 0.2)
-        pc.fillStyle = P['bench-ink']
-        pc.globalAlpha = 0.14
-        pc.beginPath()
-        pc.roundRect(x * k, (y + 0.25) * k, PILL_W * k, 1.1 * k, 0.55 * k)
-        pc.fill()
-        pc.globalAlpha = 1
-        pc.beginPath()
-        pc.arc((x + 0.4) * k, (y + 0.8) * k, 0.13 * k, 0, 2 * Math.PI)
-        pc.fillStyle = keySelected(a, key) ? P.accent : P['led-bg'] // as the HTML panel's key LEDs
-        pc.fill()
-        pc.fillStyle = P['bench-ink']
-        pc.textAlign = 'center'
-        pc.textBaseline = 'middle'
-        const label = s.keys[key][0]
-        pc.font = `500 ${(label.length > 4 ? 0.34 : 0.44) * k}px ${P.font}`
-        pc.fillText(label, (x + 1.45) * k, (y + 0.82) * k)
-      }
-      y += 2.2
-    }
-    pc.fillStyle = P['bench-ink']
-    pc.globalAlpha = 0.7
-    pc.textAlign = 'center'
-    pc.font = `600 ${0.42 * k}px ${P.font}`
-    pc.fillText(s.adjust, KNOB_PX.x * k, (KNOB_PX.y - 2.3) * k)
-    pc.globalAlpha = 1
+    drawPanelFace(pc, palette, {
+      display: d, lamp, top, bottom, modeLetter: a.mode?.[0] ?? '', selected: (k) => keySelected(a, k), labels: (k) => s.keys[k][0],
+      adjust: s.adjust, reduced: reducedMotion(),
+    }, PX_PER_CM)
     panelTex.needsUpdate = true
     return true
   }
@@ -586,19 +674,53 @@ export function mountBench(
     const d = fitPoints(pts, target, dir, camera.fov, camera.aspect, fa.fw, fa.fh, 1.05)
     presets.assembly = { target, pos: target.clone().addScaledVector(dir, d), dx: fa.dx, dy: fa.dy }
     reserveSig = `${r.left}|${r.right}|${r.top}|${r.bottom}`
-    hitMinCm = hitSizeCm(0, pxPerCm(vh, camera.fov, d), 48)
+    asmDist = d
     relayoutTable()
-    tagBox.style.setProperty('--tag-w', `${Math.round(tableCfg.dx * pxPerCm(vh, camera.fov, d) * 0.92)}px`)
-    sizeHits()
+    scaleDist = NaN
+    refreshScale(d)
+    sizeHits() // the table zone's extent may have changed even if the finger size did not
     const room = presets.room.pos.distanceTo(presets.room.target)
-    controls.minDistance = 0.45 * room
-    controls.maxDistance = 1.3 * room
+    roomLimits = { min: 0.45 * room, max: 1.3 * room }
+    applyLimits()
   }
+  // Orbit limits per view. Room: the original narrow cone. Assembly: wider, so the student can look into the open chamber from
+  // the side (±63°) and from high above, never from under the table (the camera stays above the table plane), and zoom from
+  // 0.4x to 1.6x of the default fitted distance. Pan is on (right drag / two fingers), the target boxed around chamber + table.
+  let asmDist = 100
+  let roomLimits = { min: 1, max: 1000 }
+  const PAN_BOX = new THREE.Box3(new THREE.Vector3(-12, 4, -12), new THREE.Vector3(48, 36, 70))
+  const applyLimits = () => {
+    if (cur === 'assembly') {
+      Object.assign(controls, {
+        enablePan: true, minAzimuthAngle: -1.1, maxAzimuthAngle: 1.1, minPolarAngle: 0.3, maxPolarAngle: 1.4,
+        minDistance: 0.4 * asmDist, maxDistance: 1.6 * asmDist,
+      })
+    } else {
+      Object.assign(controls, {
+        enablePan: false, minAzimuthAngle: -0.7, maxAzimuthAngle: 0.7, minPolarAngle: 0.5, maxPolarAngle: 1.45,
+        minDistance: roomLimits.min, maxDistance: roomLimits.max,
+      })
+    }
+  }
+  // Things sized for the default assembly distance follow the real camera distance: the finger-sized drop volumes (48 css px
+  // on screen) and the width of the table labels. Cheap: only recomputed when the distance moved by > 3 %.
+  let scaleDist = NaN
+  function refreshScale(dist: number) {
+    if (Math.abs(dist - scaleDist) < 0.03 * scaleDist) return
+    scaleDist = dist
+    const ppc = pxPerCm(vh, camera.fov, dist)
+    const next = Math.min(hitSizeCm(0, ppc, 48), 3 * hitSizeCm(0, pxPerCm(vh, camera.fov, asmDist), 48)) // far out: capped, so volumes don't swallow their neighbours
+    if (next !== hitMinCm) ((hitMinCm = next), sizeHits())
+    tagBox.style.setProperty('--tag-w', `${Math.round(tableCfg.dx * ppc * 0.92)}px`)
+  }
+  const orbitable = (v: View) => v === 'room' || v === 'assembly'
+  let userOrbit = false // the student moved the assembly camera: a relayout keeps it (see relayout)
   const AXIS_C = SLIT_X + S1_CM // the chamber framing keeps the default geometry
   let focus: Focus = 'room'
   let cur: View = 'room'
   let flight: { from: THREE.Vector3; fromTarget: THREE.Vector3; fromDx: number; fromDy: number; t0: number; ms: number } | null = null
   let dragActive = false // a part or a distance is being dragged: the orbit controls stay off
+  let orbiting = false // an orbit / zoom / pan gesture is in progress: a pointer-down then never grabs a part
   const lookAt = new THREE.Vector3()
   let offX = 0
   let offY = 0
@@ -616,7 +738,10 @@ export function mountBench(
   }
   const effective = (): View => (focus === 'room' && assemblyView() ? 'assembly' : focus)
   const go = (v: View, instant = false) => {
+    if (!flight && orbitable(cur)) lookAt.copy(controls.target) // pan moved the target: fly from where the camera really looks
     cur = v
+    userOrbit = false
+    applyLimits()
     // Seen from the front the open door and the frame above it would cover the chamber (its sliding door only half clears
     // the opening): they step aside for these two framings.
     topFrame.visible = door.visible = !(v === 'chamber' || v === 'assembly')
@@ -639,7 +764,7 @@ export function mountBench(
   }
   const settle = () => {
     camera.lookAt(lookAt)
-    if (cur === 'room') {
+    if (orbitable(cur)) {
       controls.target.copy(lookAt)
       controls.enabled = !dragActive
       controls.update()
@@ -716,19 +841,26 @@ export function mountBench(
     return h
   }
   zoneHit('collimatorMount', dev, [6, 5, 5], [WALL_X + 3, BEAM_Y, 0], () => !A().mounted('collimator'))
-  zoneHit('guideRods', dev, [14, 16, 6], [axisX(), BEAM_Y, BACK_Z], () => !A().mounted('goniometer'))
-  zoneHit('ribbonSocket', dev, [5, 4, 4], [ribbonSock.x, ribbonSock.y, SOCK_Z + 1], () => true)
   zoneHit('gmSocket', dev, [5, 4, 4], [gmSock.x, gmSock.y, SOCK_Z + 1], () => true)
   zoneHit('sensorSeat', sensorArm, [9, 4, 4], [s2Len() + 4, 0, 0], () => true)
   zoneHit('targetHolder', targetArm, [5, 5, 5], [0, -0.25, 0], () => true)
+  // Ghost of the absorber strip in the holder's groove (replaces the box ghost while a strip is carried).
+  const stripGhostFill = glow('accent', { opacity: 0 })
+  stripGhostFill.depthTest = false
+  stripGhostFill.side = THREE.DoubleSide
+  const stripGhost = new THREE.Mesh(stripGeometry('ghost', [0, 0, 0, 0, 0, 0, 0], WHEEL_WINDOW_DEG).frame, stripGhostFill)
+  stripGhost.renderOrder = 20
+  stripGhost.position.z = plate.position.z
+  stripGhost.visible = false
+  targetArm.add(stripGhost)
   zoneHit('collimatorTip', dev, [3, 4, 4], [SLIT_X + 0.5, BEAM_Y, 0], () => true)
   // The table in front of the apparatus is one big drop zone ("off the apparatus"); its extent follows the layout (relayoutTable).
   const trayHit = zoneHit('tray', scene, [70, 0.4, 30], [17.5, 0.2, 40], () => assemblyView(), true)
   // Grab volumes: parts on the device that can be dragged out (back to the table), and the two distance handles.
-  hitBox(grabHits, cM.body, [8, 3, 3], [0, 0, 0], { part: () => 'counter', dist: 's2' })
-  hitBox(grabHits, stageTable, [5, 3, 5], [0, 0, 0], { part: () => 'targetStage' })
+  hitBox(grabHits, cM.g, [9, 3.4, 3.4], [3, 0, 0], { part: () => 'counter', dist: 's2' })
+  hitBox(grabHits, stageTable, [4, 3, 3.4], [0, -1, 0], { part: () => 'targetStage' })
   hitBox(grabHits, collFoil, [3, 4, 4], [0, 0, 0], { part: () => 'zrFilter' })
-  hitBox(grabHits, targetArm, [2 * PLATE_R_CM, 2 * PLATE_R_CM, 3], [0, 0, 0], {
+  hitBox(grabHits, plate, [3.6, 5, 4], [2.4, -2, 0], { // tight round the arc: the axis stays free for the s₁ handle behind it
     part: () => (A().mounted('absorbersI') ? 'absorbersI' : A().mounted('absorbersII') ? 'absorbersII' : null),
     on: () => plate.children.length > 0,
   })
@@ -792,18 +924,19 @@ export function mountBench(
     incident.position.set((ANODE_X + ax) / 2, BEAM_Y, 0)
     setBeam(reflected, s2Len() + 1.8)
     reflected.position.x = (s2Len() + 1.8) / 2
-    const L = s2Len() + 5
-    armBar.scale.x = L
-    armBar.position.x = (s2Len() + 13) / 2
+    for (const r of armRods) {
+      r.scale.y = s2Len() + 9 // from the bracket left of the axis to the one at the counter end
+      r.position.x = (s2Len() - 2.8) / 2
+    }
+    armRight.position.x = s2Len() + 3.1
     cM.g.position.x = s2Len()
     ghosts.get('sensorSeat')!.hit.position.x = s2Len() + 4
-    ghosts.get('guideRods')!.hit.position.x = ax
     const rx = ribbonSock.x
     ribH.scale.x = Math.max(0.01, ax - rx)
     ribH.position.x = (rx + ax) / 2
     const vTop = ribbonSock.y
     const vBot = BEAM_Y + 9
-    ribV.position.set(ax, (vTop + vBot) / 2, -D / 2 + 1.1)
+    ribV.position.set(ax, (vTop + vBot) / 2, RIB_Z + 0.2)
     ribV.scale.y = vTop - vBot
     dimS1 = dimS2 = NaN
     cabS1 = cabS2 = NaN
@@ -814,13 +947,6 @@ export function mountBench(
   let cabArm = NaN
 
   // Which accessories show: while assembling, what the assembly says; afterwards the Apparatus decides (tasks swap crystal/detector).
-  const SLOT_COLOURS: Colour[] = ['phys-kalpha', 'phys-kbeta', 'phys-crystal', 'phys-constructive', 'phys-continuum', 'accent', 'bench-ink']
-  const plateMats = {
-    frame: matte('bench-trim', { side: THREE.DoubleSide }),
-    al: matte('bench-metal', { roughness: 0.4, metalness: 0.6, side: THREE.DoubleSide }), // set I: aluminium grey
-    mixed: SLOT_COLOURS.map((c) => matte(c, { roughness: 0.5, side: THREE.DoubleSide })), // set II: one colour per material
-  }
-
   // ── The workbench: every part of the experiment lies on the table in front of the apparatus at its fixed home spot, with a
   // small label. The student grabs one there and drops it on a lit zone; a part taken off the device returns to its spot.
   type Prop = {
@@ -849,47 +975,46 @@ export function mountBench(
     props.set(part, pr)
     return pr
   }
-  const at3 = <T extends THREE.Object3D>(o: T, x: number, y: number, z: number) => (o.position.set(x, y, z), o)
-  const ringOf = (mats: THREE.Material[]) => {
-    const ring = new THREE.Group()
-    const n = mats.length
-    for (let k = 0; k < n; k++) {
-      const seg = new THREE.Mesh(new THREE.CylinderGeometry(PLATE_R_CM, PLATE_R_CM, 2.5, 8, 1, true, (k * 2 * Math.PI) / n, (2 * Math.PI) / n - 0.12), mats[k])
-      seg.rotation.x = Math.PI / 2
-      ring.add(seg)
-    }
-    return ring
-  }
-  const stand = (w: number, d: number, y: number) => at3(box(w, 0.4, d, trim, 0, 0, 0), 0, y, 0)
-  mkProp('collimator', 1.5, 2.5, [10, 3, 3], (g) => {
-    g.add(cyl(1, 9, metal, 'x', 24), at3(cyl(1.5, 0.8, metal, 'x', 24), -3, 0, 0))
+  const propFont = palette.font || 'sans-serif'
+  mkProp('collimator', 2.4, 2.5, [10, 3, 3], (g) => {
+    g.add(buildCollimator(M, -2, 2.1, 0))
   })
-  mkProp('goniometer', 3.5, 3.5, [8, 7, 4], (g) => {
-    g.add(cyl(3.5, 1, metal, 'z', 40), at3(box(1.6, 7, 0.9, metal, 0, 0, 0), 0, 0, 0.9), at3(cyl(0.5, 3, metal, 'z', 12), 0, 0, -1.8), stand(6, 4, -3.3))
-  })
-  mkProp('ribbonCable', 0.3, 2.6, [8, 1, 5], (g) => {
-    g.add(box(7, 0.2, 1.6, ribbonMat, 0, 0, -0.9), box(7, 0.2, 1.6, ribbonMat, 0, 0, 0.9), box(1.6, 0.2, 3.4, ribbonMat, 3.5, 0, 0), box(1, 0.5, 1.6, trim, -3.5, 0.15, -0.9), box(1, 0.5, 1.6, trim, -3.5, 0.15, 0.9))
-  })
-  const counterProp = mkProp('counter', 1.1, 2, [9, 3, 3], (g) => {
-    const c = makeCounter()
-    c.g.position.x = -3 // centred on its body
+  const counterProp = mkProp('counter', 2, 2, [9, 3, 3], (g) => {
+    const c = makeCounter(0.4)
+    c.g.position.x = -3.5 // centred on its body
     g.add(c.g)
     g.userData.cap = c.cap
   })
-  const capHit = hitBox(grabHits, counterProp.g, [3, 3, 3], [-3.6, 0, 0], { part: () => 'counterCap', on: () => A().mounted('counterCap') && carry?.part !== 'counterCap' })
+  const capHit = hitBox(grabHits, counterProp.g, [3, 3, 3], [-4.1, 0, 0], { part: () => 'counterCap', on: () => A().mounted('counterCap') && carry?.part !== 'counterCap' })
   capHit.userData.hit.table = true
-  mkProp('counterCap', 1.3, 1.8, [3, 3, 3], (g) => g.add(cyl(1.3, 1.2, capMat, 'x', 24)))
-  mkProp('counterCable', 0.3, 3, [6, 1.5, 6], (g) => {
-    const loop = new THREE.Mesh(new THREE.TorusGeometry(2.4, 0.28, 8, 28), cableMat)
-    loop.rotation.x = Math.PI / 2
-    g.add(loop, box(1.6, 0.8, 0.8, metal, 2.9, 0, 0.9), box(1.6, 0.8, 0.8, metal, 2.9, 0, -0.9))
+  mkProp('counterCap', 1.4, 1.8, [3, 3, 3], (g) => g.add(buildCap(M)))
+  mkProp('counterCable', 0.25, 3, [6, 1.5, 6], (g) => {
+    // a coiled black cable with a round connector
+    const pts: THREE.Vector3[] = []
+    for (let i = 0; i <= 90; i++) {
+      const u = i / 90
+      const ang = u * 2.4 * 2 * Math.PI
+      const r = 2.5 - 0.5 * u
+      pts.push(new THREE.Vector3(Math.cos(ang) * r, u * 0.5, Math.sin(ang) * r))
+    }
+    g.add(new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 160, 0.2, 6), M.black))
+    g.add(at3(cyl(0.7, 2.2, M.black, 'x', 14), 3.6, 0.2, 0), at3(cyl(0.85, 0.5, M.steel, 'x', 14), 2.8, 0.2, 0))
   })
-  mkProp('targetStage', 0.25, 2.5, [5, 1, 5], (g) => g.add(box(4.4, 0.5, 4.4, matte('bench-trim'), 0, 0, 0), box(1, 0.6, 1, metal, 1.4, 0.3, 1.4)))
-  mkProp('naclCrystal', 1, 1.5, [3, 3, 3], (g) => g.add(box(2, 2, 2, matte('phys-crystal', { roughness: 0.3 }), 0, 0, 0)))
-  mkProp('absorbersI', 2.7, 2.5, [5, 5, 4], (g) => g.add(ringOf([plateMats.al, plateMats.al, plateMats.al, plateMats.al, plateMats.al, plateMats.al, plateMats.al, plateMats.al]), stand(4, 3, -2.5)))
-  mkProp('absorbersII', 2.7, 2.5, [5, 5, 4], (g) => g.add(ringOf(plateMats.mixed.slice(0, 7)), stand(4, 3, -2.5)))
-  mkProp('zrFilter', 1.8, 2.2, [4, 4, 3], (g) => {
-    g.add(box(3.2, 3.2, 0.4, trim, 0, 0, 0), at3(cyl(1, 0.5, metal, 'z', 24), 0, 0, 0.1), stand(2.5, 1.5, -1.8))
+  mkProp('targetStage', 1.9, 2.5, [4, 3, 3.4], (g) => {
+    g.add(buildHolderBox(M)) // the grey stage with its black knob, standing on the table
+  })
+  mkProp('naclCrystal', 0.3, 1.5, [3, 3, 3], (g) => g.add(box(2.6, 0.5, 2.4, M.crystal, 0, 0, 0)))
+  const stripProp = (key: string, kind: number[]) => (g: THREE.Group) => {
+    const strip = buildStrip(M, key, kind, WHEEL_WINDOW_DEG)
+    strip.rotation.z = -60 * RAD // lying on its curve, the windows facing up
+    g.add(strip)
+  }
+  mkProp('absorbersI', STRIP_R_CM, 3, [7, 5, 4], stripProp('I', [0, 2, 2, 2, 2, 2, 2]))
+  mkProp('absorbersII', STRIP_R_CM, 3, [7, 5, 4], stripProp('II', [0, 1, 2, 3, 4, 5, 6]))
+  mkProp('zrFilter', 0.85, 2.2, [4, 4, 3], (g) => {
+    const cap = buildFilterCap(M, 'Zr', propFont)
+    cap.rotation.z = Math.PI / 2 // standing on its end, its label up
+    g.add(cap)
   })
   /** The parts that lie on the table in this experiment (the order of the layout). */
   function partsOnTable(): readonly Part[] {
@@ -962,21 +1087,13 @@ export function mountBench(
     const key = `${holder}|${WHEELS_MG_CM2.al.length}|${WHEELS_MG_CM2.material.length}`
     if (key === builtHolder) return
     builtHolder = key
-    for (const m of plate.children) (m as THREE.Mesh).geometry.dispose()
-    plate.clear()
+    plate.clear() // the strips' geometries are shared and cached: nothing is disposed
     if (!holder.endsWith('Wheel')) return
     const tiles = WHEELS_MG_CM2[holder === 'alWheel' ? 'al' : 'material']
     const count = tiles.length || 7 // before the absorber tables arrive the sets are drawn with all their windows
-    const w = WHEEL_WINDOW_DEG * RAD
-    // With the ring axis turned onto z, CylinderGeometry's θ sits at angle θ − 90° in the x–y plane and the arm turns it
-    // by +β, so slot k centres on θ = 90° − 10k° and meets the beam (+x side) at β = 10k°.
-    const seg = (n: number, from: number, to: number, m: THREE.Material) => {
-      const o = new THREE.Mesh(new THREE.CylinderGeometry(PLATE_R_CM, PLATE_R_CM, 2.5, 8, 1, true, Math.PI / 2 - n * 10 * RAD + from, to - from), m)
-      o.rotation.x = Math.PI / 2 // ring axis along z, like the goniometer axis
-      plate.add(o)
-    }
-    for (let n = -1; n < 7; n++) seg(n, w, 10 * RAD - w, plateMats.frame) // frame after slot n
-    for (let n = 0; n < count; n++) if (tiles.length === 0 || tiles[n]) seg(n, -w, w, holder === 'alWheel' ? plateMats.al : plateMats.mixed[n % plateMats.mixed.length])
+    // Slot 0 is open; set I is all aluminium, set II one material per slot: polystyrene, Al, Fe, Cu, Zr, Ag.
+    const kind = Array.from({ length: 7 }, (_, n) => (n === 0 || n >= count || (tiles.length > 0 && !tiles[n]) ? 0 : holder === 'alWheel' ? 2 : n))
+    plate.add(buildStrip(M, `${holder}${kind.join('')}`, kind, WHEEL_WINDOW_DEG))
   }
   let lastSetup: Setup | null = null
   let lastDone = false
@@ -986,8 +1103,6 @@ export function mountBench(
     const As = A()
     const assembling = !As.done()
     collW.visible = As.mounted('collimator')
-    goniW.visible = As.mounted('goniometer')
-    ribbonW.visible = As.mounted('ribbonCable')
     counterW.visible = As.mounted('counter')
     cM.cap.visible = As.mounted('counterCap')
     cableW.visible = As.mounted('counterCable')
@@ -998,7 +1113,6 @@ export function mountBench(
       : s_.holder
     buildHolder(holder)
     crystal.visible = holder === 'crystal'
-    stageTable.position.y = holder === 'crystal' ? -0.75 : -0.25 // the crystal lies flat on the stage
     collFoil.visible = assembling ? As.mounted('zrFilter') : !!s_.collimatorFilter
     sensorFoil.visible = assembling ? false : !!s_.sensorFilter
     lastSetup = s_
@@ -1011,7 +1125,7 @@ export function mountBench(
 
   // Snap-in: a newly mounted part eases from a little above and towards the student into its place.
   const snapRoots: Partial<Record<Part, THREE.Object3D>> = {
-    collimator: collW, goniometer: goniW, ribbonCable: ribbonW, counter: counterW, targetStage: stageW, naclCrystal: crystalW, zrFilter: foilW, absorbersI: plate, absorbersII: plate,
+    collimator: collW, counter: counterW, targetStage: stageW, naclCrystal: crystalW, zrFilter: foilW, absorbersI: plate, absorbersII: plate,
   }
   const SNAP_MS = 280
   const snaps = new Map<THREE.Object3D, number>()
@@ -1082,7 +1196,7 @@ export function mountBench(
     if (!env.tip.hidden) env.tip.hidden = true
   }
   const restoreControls = () => {
-    if (!dragActive && cur === 'room' && !flight) controls.enabled = true
+    if (!dragActive && orbitable(cur) && !flight) controls.enabled = true
   }
   hooks.resolveZone = (x, y) => {
     aim({ clientX: x, clientY: y })
@@ -1162,7 +1276,14 @@ export function mountBench(
       const shaking = shake?.zone === z
       const on = valid.has(z) || shaking
       if (gh.g.visible !== on) ((gh.g.visible = on), (dirty = true))
+      if (z === 'targetHolder' && !on && stripGhost.visible) ((stripGhost.visible = false), (dirty = true))
       if (!on) continue
+      if (z === 'targetHolder') {
+        const strip = carry?.part === 'absorbersI' || carry?.part === 'absorbersII'
+        gh.g.visible = !strip
+        stripGhost.visible = strip
+        stripGhostFill.opacity = (hot === z ? 0.45 : 0.25) + pulse
+      }
       const isHot = hot === z
       gh.fill.opacity = (isHot ? 0.3 : 0.1) + pulse
       gh.g.scale.setScalar(isHot ? 1 : 0.94)
@@ -1212,7 +1333,7 @@ export function mountBench(
   }
   canvas.addEventListener('pointerdown', (e) => {
     consumed = false
-    if ((e.pointerType === 'mouse' && e.button !== 0) || a.doorsClosed || dragActive || distDrag) return
+    if ((e.pointerType === 'mouse' && e.button !== 0) || a.doorsClosed || dragActive || distDrag || orbiting) return
     const g = grabAt(e)
     if (!g) return
     consumed = true
@@ -1283,9 +1404,37 @@ export function mountBench(
     const p = hit(e)
     onPick(cur === 'assembly' && p !== 'door' ? null : p) // while assembling, a tap on the chamber is not "open the card"
   })
-  controls.addEventListener('change', () => (dirty = true))
+  // Orbit gestures (assembly: empty space orbits, wheel / pinch zooms, right-drag / two fingers pan). Part grabs never reach
+  // here: their capturing pointerdown disables the controls first, and `orbiting` stops a second finger from grabbing mid-gesture.
+  const panFix = new THREE.Vector3()
+  controls.addEventListener('start', () => {
+    orbiting = true
+    if (cur === 'assembly') userOrbit = true
+  })
+  controls.addEventListener('end', () => (orbiting = false))
+  controls.addEventListener('change', () => {
+    dirty = true
+    if (cur !== 'assembly' || !controls.enablePan) return
+    // Keep the pan target inside the box around chamber + table (the camera moves with it, so the view just stops sliding).
+    panFix.copy(controls.target).clamp(PAN_BOX.min, PAN_BOX.max).sub(controls.target)
+    if (panFix.lengthSq() > 0) (controls.target.add(panFix), camera.position.add(panFix))
+  })
 
   // ── Sizing ─────────────────────────────────────────────────────────────
+  // Relayout policy: a resize or a HUD change recomputes the presets. If the student has orbited / zoomed / panned the assembly
+  // camera, it is KEPT (only the HUD view offset, the limits and the label / hit scale follow), so a step's slider appearing or a
+  // phone rotating slightly does not snap the view away. It is reset to the default framing only when that is necessary: the table
+  // layout switched between landscape and portrait (the parts moved), or the view is not assembly (then there is nothing to keep).
+  const relayout = (instant: boolean) => {
+    const cols = tableCfg.cols
+    layout()
+    if (cur === 'assembly' && userOrbit && !flight && tableCfg.cols === cols) {
+      setOffset(presets.assembly.dx, presets.assembly.dy)
+      dirty = true
+    } else if (instant) {
+      if (!flight) go(effective(), true)
+    } else if (cur === 'assembly') go('assembly')
+  }
   new ResizeObserver(([e]) => {
     const { width, height } = e.contentRect
     if (width === 0 || height === 0) return
@@ -1296,8 +1445,7 @@ export function mountBench(
     offX = offY = NaN // the view offset is in px: re-apply it at the new size
     camera.clearViewOffset()
     camera.updateProjectionMatrix()
-    layout()
-    if (!flight) go(effective(), true)
+    relayout(true)
   }).observe(canvas)
   // The HUD changes size (a step with a slider, the checklist unfolded): the chamber follows into the free area.
   const asmEl = document.querySelector('[data-asm]')
@@ -1306,8 +1454,7 @@ export function mountBench(
       if (vw <= 1) return
       const r = env.reserve()
       if (`${r.left}|${r.right}|${r.top}|${r.bottom}` === reserveSig) return
-      layout()
-      if (cur === 'assembly') go('assembly')
+      relayout(false)
     }).observe(asmEl)
   }
   let tintedVersion = -1
@@ -1325,7 +1472,12 @@ export function mountBench(
       for (const [m, c] of tinted) m.color.set(palette[c])
       drawLabel()
       const light = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--bench-light')) || 1
-      sky.intensity = sun.intensity = 2.2 * light
+      sky.intensity = sun.intensity = LIGHT_BASE * light
+      scene.environmentIntensity = 0.3 * light // the painted and plastic parts take little of it ...
+      for (const [m] of tinted) {
+        const sm = m as THREE.MeshStandardMaterial
+        if (sm.isMeshStandardMaterial && sm.metalness >= 0.8) ((sm.envMap = envTex), (sm.envMapIntensity = 1.1 * light)) // ... the metals a lot
+      }
       sky.groundColor.set(palette['bench-table'])
       tintedVersion = paletteVersion
       dirty = true
@@ -1344,8 +1496,9 @@ export function mountBench(
       camera.lookAt(lookAt)
       if (x === 1) (flight = null), settle()
       dirty = true
-    } else if (cur === 'room' && controls.enabled) controls.update()
+    } else if (orbitable(cur) && controls.enabled) controls.update()
 
+    if (cur === 'assembly') refreshScale(camera.position.distanceTo(flight ? lookAt : controls.target))
     arms.step(dtS)
     targetArm.rotation.z = (arms.t / 10) * RAD
     sensorArm.rotation.z = (arms.s / 10) * RAD
@@ -1357,7 +1510,7 @@ export function mountBench(
     stepSnaps(performance.now())
     stepGhosts(dtS, performance.now())
     const showDims = assemblyView() && !A().done()
-    dim1.visible = showDims && goniW.visible
+    dim1.visible = showDims
     dim2.visible = showDims && counterW.visible
     if (showDims) updateDims(sensorArm.rotation.z)
     if (cableW.visible) {
@@ -1414,7 +1567,12 @@ export function mountBench(
   return {
     render,
     fly: (f: Focus) => fly(f),
-    /** Dev/E2E only: viewport positions of the usable drop zones and grab handles. */
+    /** Is the assembly camera the one on show (the "Recentrar vista" button follows it)? */
+    assemblyActive: () => cur === 'assembly',
+    /** Fly back to the default assembly framing (instant under reduced motion). */
+    resetView: () => {
+      if (cur === 'assembly') go('assembly')
+    },    /** Dev/E2E only: viewport positions of the usable drop zones and grab handles. */
     debug: () => {
       scene.updateMatrixWorld(true)
       const r = canvas.getBoundingClientRect()
@@ -1440,7 +1598,7 @@ export function mountBench(
       const rc = tableRect(partsOnTable().length, tableCfg)
       v.set(rc.cx, 0, rc.cz).project(camera)
       const table = { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height }
-      return { zones, grabs, parts, table, view: cur }
+      return { zones, grabs, parts, table, view: cur, calls: renderer.info.render.calls, tris: renderer.info.render.triangles }
     },
     /** The door refused to open (interlock): a short shake. */
     shake: () => {
