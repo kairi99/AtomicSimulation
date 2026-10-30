@@ -139,13 +139,6 @@ export function buildCollimator(M: Mats, wallFaceX: number, slitX: number, beamY
   return g
 }
 
-/** Protective cap of the counter: brass, with a thin black line across its face. Origin: its centre; axis x, face towards -x. */
-export function buildCap(M: Mats) {
-  const g = new THREE.Group()
-  g.add(cylinder(1.4, 1.2, M.brass, 'x', 24), slab(0.08, 2.4, 0.14, M.black, -0.6, 0, 0))
-  return g
-}
-
 /** End-window GM counter: bronze front cylinder, brass band, dark rear body, aluminium hex clamp on a post towards the arm.
  * Origin: the window; the body runs towards +x. `postLen`: how far the clamp's post reaches back to the arm (−z). */
 export function buildCounter(M: Mats, postLen: number) {

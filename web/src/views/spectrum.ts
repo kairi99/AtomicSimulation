@@ -484,7 +484,9 @@ export function mountSpectrum(root: HTMLElement, a: Apparatus) {
         if (p.rate > yMax) yMax = niceCeil(p.rate * 1.05)
       }
       empty.hidden = n > 0 // before the redraw: the band caption shows only without it
-      plot!.setData(data(), false)
+      // Default resetScales: re-applies the fixed x range (x has auto: false), which recomputes the visible index
+      // window and commits a redraw. With `false`, a plot built while empty keeps its empty window and never draws.
+      plot!.setData(data())
       setY()
     }
     syncWeak(n) // after the points: it reads the finished scan's data and yMax

@@ -8,12 +8,9 @@
 //   asm.current()          the step to do now (null when done); asm.index() / asm.steps.length for progress
 //   asm.place(part, zone)  the one way to mount a part: { ok: true } or { ok: false, reason }
 //   asm.zonesFor(part)     zones that accept the part right now (highlight them while it is dragged)
-//   asm.mounted(part)      is the part on the device now (show/hide its 3D mesh). The counter cap starts mounted
-//                          (on the counter) and the target stage starts mounted on the holder for BOTH experiments:
+//   asm.mounted(part)      is the part on the device now (show/hide its 3D mesh). The target stage starts mounted on the holder for BOTH experiments:
 //                          the attenuation guide removes it (the absorbers need the holder), Bragg keeps it (the
 //                          crystal lies flat on it).
-//   asm.inChamber(part)    the counter lies loose on the chamber floor during the cap step (its tray item is then
-//                          "in the chamber" and not a second source); from the next step it is a tray part.
 //   asm.distance('s1'|'s2')  cm, for placing the (always mounted) goniometer and the sensor holder. Bragg: s1 collimator slit to the
 //                          target axis, s2 axis to the sensor slit. Attenuation (leaflet P6.3.2.1): both are measured to
 //                          the EMPTY WINDOW of the absorber set, i.e. from/to a point PLATE_R_CM beyond the axis (the
@@ -42,7 +39,7 @@ import type { Setup } from './apparatus'
 
 export type Experiment = 'bragg' | 'attenuation'
 export type Part =
-  | 'collimator' | 'counterCap' | 'counter' | 'counterCable'
+  | 'collimator' | 'counter' | 'counterCable'
   | 'targetStage' | 'naclCrystal' | 'absorbersI' | 'absorbersII' | 'zrFilter'
 export type Zone =
   | 'collimatorMount' | 'sensorSeat' | 'gmSocket'
@@ -69,12 +66,12 @@ const COMMON: Step[] = [mount('collimator', 'collimatorMount')]
 const STEPS: Record<Experiment, readonly Step[]> = {
   bragg: [
     ...COMMON, dist('s1', 5),
-    mount('counterCap', 'tray'), mount('counter', 'sensorSeat'), mount('counterCable', 'gmSocket'),
+    mount('counter', 'sensorSeat'), mount('counterCable', 'gmSocket'),
     dist('s2', 6), mount('naclCrystal', 'targetHolder'), { id: DOOR_STEP }, { id: ZERO_STEP },
   ],
   attenuation: [
     ...COMMON,
-    mount('counterCap', 'tray'), mount('counter', 'sensorSeat'), mount('counterCable', 'gmSocket'),
+    mount('counter', 'sensorSeat'), mount('counterCable', 'gmSocket'),
     mount('targetStage', 'tray'), mount('absorbersI', 'targetHolder'), dist('s1', 5), dist('s2', 5), { id: DOOR_STEP }, { id: ZERO_STEP },
   ],
 }
@@ -187,10 +184,6 @@ export class Assembly {
   }
   mounted(part: Part): boolean {
     return this.on.has(part)
-  }
-  /** The part still lies loose in the chamber (the counter during the cap step): the tray must not offer it as well. */
-  inChamber(part: Part): boolean {
-    return part === 'counter' && this.current()?.id === 'counterCap'
   }
   parts(): readonly Part[] {
     return partsFor(this.experiment)
@@ -320,7 +313,7 @@ export class Assembly {
   /** Back to the empty chamber (the experiment stays). `emit` is false only inside the constructor. */
   reset(emit = true): void {
     this.idx = 0
-    this.on = new Set<Part>(['counterCap', 'targetStage'])
+    this.on = new Set<Part>(['targetStage'])
     this.d = { s1: START_DISTANCE_CM, s2: START_DISTANCE_CM }
     this.doorShut = false
     this.zeroed = false

@@ -18,7 +18,7 @@ import { getMode } from '../pedagogy/mode'
 import { WHEELS_MG_CM2 } from '../physics/tables'
 import { armEaser, dpr, palette, paletteVersion, reducedMotion, type Palette } from './canvas'
 import { at } from './assembly-i18n'
-import { buildCap, buildCollimator, buildCounter, buildFilterCap, buildHolderBox, buildStrip, buildTube, STRIP_R_CM, stripGeometry, makeMats, stageDiscGeometry } from './bench-models'
+import { buildCollimator, buildCounter, buildFilterCap, buildHolderBox, buildStrip, buildTube, STRIP_R_CM, stripGeometry, makeMats, stageDiscGeometry } from './bench-models'
 import { drawPanelFace } from './bench-panel-face'
 import { fitPoints, freeArea, hitSizeCm, pxPerCm, s1FromRay, s2FromRay, type Reserve, type V3 } from './bench-assembly-geometry'
 import { tableLayout, tableRect, tableSpots } from './bench-table-layout'
@@ -64,7 +64,7 @@ export function mountBench(
 ) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true })
   const scene = new THREE.Scene()
-  const camera = new THREE.PerspectiveCamera(30, 1, 1, 2000)
+  const camera = new THREE.PerspectiveCamera(30, 1, 5, 1200) // near/far as tight as the scene allows: depth precision goes with far/near
   const controls = new OrbitControls(camera, canvas)
   Object.assign(controls, {
     enablePan: false, enableDamping: !reducedMotion(), dampingFactor: 0.12,
@@ -99,6 +99,10 @@ export function mountBench(
   const housing = M.housing
   const trim = M.plastic
   const glass = matte('bench-glass', { transparent: true, opacity: 0.15, roughness: 0.08, depthWrite: false })
+  // Glass never writes depth, so it is blended in sort order: drawn last (above the other translucent parts and the overlays of
+  // order 0), the order cannot flip with the viewing angle and make the beam or the tags behind it pop in and out.
+  const GLASS_ORDER = 5
+  const doorGlass = matte('bench-glass', { transparent: true, opacity: 0.24, roughness: 0.08, depthWrite: false }) // the sliding door: a touch denser, so closed reads as closed
   const pickables: THREE.Object3D[] = []
   const box = (w: number, h: number, d: number, m: THREE.Material, x: number, y: number, z: number, p?: Pick) => {
     const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m)
@@ -216,12 +220,16 @@ export function mountBench(
   dev.add(box(1.2, CEIL - FLOOR, 1, M.steel, COL_X + 0.4, (CEIL + FLOOR) / 2, zf))
   dev.add(box(WALL_X - COL_X, 1.2, 1, M.steel, (COL_X + WALL_X) / 2, FLOOR + 0.2, zf)) // sill under the tube chamber
   const window_ = box(W / 2 - WALL_X - 1, CEIL - DOOR_TOP - 1, 0.4, glass, (W / 2 + WALL_X) / 2, (CEIL + DOOR_TOP) / 2, zf, 'chamber')
+  window_.renderOrder = GLASS_ORDER
   dev.add(window_)
   const tubeDoor = box(WALL_X - COL_X - 1.4, CEIL - FLOOR - 1, 0.4, glass, (WALL_X + COL_X) / 2, (CEIL + FLOOR) / 2, D / 2 + 0.2)
+  tubeDoor.renderOrder = GLASS_ORDER
   dev.add(tubeDoor)
   // The large round black port on the right wall of the experiment chamber.
+  // Every face has its own depth: the black disc stands 0.15 cm proud of its white rim (the two front caps were coplanar and
+  // z-fought into a moiré), and the rim 0.2 cm off the wall liner.
   const port = cyl(8.2, 0.3, matte('bench-black', { roughness: 0.28 }), 'x', 48)
-  port.position.set(ex1 - 0.05, BEAM_Y, 0)
+  port.position.set(ex1 - 0.2, BEAM_Y, 0)
   const portRim = cyl(8.8, 0.2, M.white, 'x', 48)
   portRim.position.set(ex1 - 0.1, BEAM_Y, 0)
   dev.add(portRim, port)
@@ -230,7 +238,8 @@ export function mountBench(
   // rail in front of the tube chamber.
   const door = new THREE.Group()
   const doorH = DOOR_TOP - FLOOR - 1
-  const pane = box(DOOR_W - 2.2, doorH - 1.6, 0.4, glass, 0.2, 0, 0)
+  const pane = box(DOOR_W - 2.2, doorH - 1.6, 0.4, doorGlass, 0.2, 0, 0)
+  pane.renderOrder = GLASS_ORDER
   door.add(pane)
   for (const y of [-doorH / 2 + 0.4, doorH / 2 - 0.4]) door.add(box(DOOR_W, 0.8, 0.8, M.steel, 0, y, 0))
   door.add(box(1.4, doorH, 0.8, M.steel, -DOOR_W / 2 + 0.7, 0, 0), box(1, doorH, 0.8, M.steel, DOOR_W / 2 - 0.5, 0, 0))
@@ -248,7 +257,7 @@ export function mountBench(
   const panelTex = new THREE.CanvasTexture(panelCanvas)
   dev.add(box(PANEL.w + 1.2, PANEL.h + 1.2, 0.2, M.edge, PANEL.x, PANEL.y, D / 2 + 0.1))
   const panelFace = new THREE.Mesh(new THREE.PlaneGeometry(PANEL.w, PANEL.h), new THREE.MeshBasicMaterial({ map: panelTex, toneMapped: false }))
-  panelFace.position.set(PANEL.x, PANEL.y, D / 2 + 0.21)
+  panelFace.position.set(PANEL.x, PANEL.y, D / 2 + 0.25) // clear of the bezel's front (D/2 + 0.2)
   dev.add(pick(panelFace, 'panel'))
   const KNOB_PX = { x: 4.7, y: 12.7 } // cm from the panel's top left
   const knob = new THREE.Group()
@@ -380,10 +389,7 @@ export function mountBench(
   const armRight = box(1.3, 6.6, 1.4, M.alu, 0, 0, ARM_Z) // the bracket at the counter end
   const makeCounter = (postLen: number) => {
     const c = buildCounter(M, postLen)
-    const cap = buildCap(M) // protective cap on the window
-    cap.position.x = -0.6
-    c.g.add(cap)
-    return { g: c.g, body: c.body, cap }
+    return { g: c.g, body: c.body }
   }
   const counterW = new THREE.Group()
   const cM = makeCounter(-ARM_Z)
@@ -742,9 +748,10 @@ export function mountBench(
     cur = v
     userOrbit = false
     applyLimits()
-    // Seen from the front the open door and the frame above it would cover the chamber (its sliding door only half clears
-    // the opening): they step aside for these two framings.
-    topFrame.visible = door.visible = !(v === 'chamber' || v === 'assembly')
+    // Seen from the front the frame above the door would cover the arm's top, and the open door (it only half clears the
+    // opening) the chamber card: they step aside. The assembly view keeps the door: the student slides it shut there.
+    topFrame.visible = !(v === 'chamber' || v === 'assembly')
+    door.visible = v !== 'chamber' // the assembly view shows it: closing it by hand is a step
     roof.visible = v !== 'assembly'
     if (!presets[v]) return // before the first layout, which then places the camera
     controls.enabled = false
@@ -799,6 +806,7 @@ export function mountBench(
   const unit = new THREE.BoxGeometry(1, 1, 1)
   const zoneHits: THREE.Mesh[] = []
   const grabHits: THREE.Mesh[] = []
+  const doorHits: THREE.Mesh[] = [] // the door's grip: grabbed, it slides along its track
   const hitBox = (list: THREE.Mesh[], parent: THREE.Object3D, base: [number, number, number], pos: [number, number, number], tag: HitTag) => {
     const m = new THREE.Mesh(unit, hitMat)
     m.userData.base = base
@@ -809,7 +817,7 @@ export function mountBench(
     return m
   }
   const sizeHits = () => {
-    for (const m of [...zoneHits, ...grabHits]) {
+    for (const m of [...zoneHits, ...grabHits, ...doorHits]) {
       const b = m.userData.base as [number, number, number]
       if (m.userData.flat) {
         m.scale.set(b[0], b[1], b[2]) // the table zone is as big as the table, not finger-sized
@@ -979,15 +987,11 @@ export function mountBench(
   mkProp('collimator', 2.4, 2.5, [10, 3, 3], (g) => {
     g.add(buildCollimator(M, -2, 2.1, 0))
   })
-  const counterProp = mkProp('counter', 2, 2, [9, 3, 3], (g) => {
+  mkProp('counter', 2, 2, [9, 3, 3], (g) => {
     const c = makeCounter(0.4)
     c.g.position.x = -3.5 // centred on its body
     g.add(c.g)
-    g.userData.cap = c.cap
   })
-  const capHit = hitBox(grabHits, counterProp.g, [3, 3, 3], [-4.1, 0, 0], { part: () => 'counterCap', on: () => A().mounted('counterCap') && carry?.part !== 'counterCap' })
-  capHit.userData.hit.table = true
-  mkProp('counterCap', 1.4, 1.8, [3, 3, 3], (g) => g.add(buildCap(M)))
   mkProp('counterCable', 0.25, 3, [6, 1.5, 6], (g) => {
     // a coiled black cable with a round connector
     const pts: THREE.Vector3[] = []
@@ -1048,8 +1052,6 @@ export function mountBench(
       const tagOn = shown && carry?.part !== pr.part
       if (pr.tag.hidden === tagOn) pr.tag.hidden = !tagOn
     }
-    const cap = counterProp.g.userData.cap as THREE.Object3D
-    cap.visible = As.mounted('counterCap') && carry?.part !== 'counterCap'
     dirty = true
   }
   const FLY_MS = 320
@@ -1104,7 +1106,6 @@ export function mountBench(
     const assembling = !As.done()
     collW.visible = As.mounted('collimator')
     counterW.visible = As.mounted('counter')
-    cM.cap.visible = As.mounted('counterCap')
     cableW.visible = As.mounted('counterCable')
     stageW.visible = As.mounted('targetStage')
     const s_ = a.setup
@@ -1307,7 +1308,7 @@ export function mountBench(
     aim(e)
     const hits = ray.intersectObjects(grabHits, false)
     // Parts on the table: any of them can be picked up (a wrong part is refused with a reason on the drop); the centre nearest to
-    // the ray wins where two volumes overlap (the cap on the counter).
+    // the ray wins where two volumes overlap.
     let best: THREE.Object3D | null = null
     let bestD = Infinity
     for (const h of hits) {
@@ -1331,8 +1332,51 @@ export function mountBench(
     }
     return null
   }
+  // The door by hand: the grip (handle and the edge round it) is a hit volume; the door follows the pointer along its track and,
+  // released, goes where it was nearer: past the middle towards the other end it takes the same path as the button / a tap
+  // (`onPick('door')`: the assembly gate, the loading check and the HV interlock all apply), otherwise it slides back. Escape or a
+  // cancelled pointer puts it back untouched.
+  hitBox(doorHits, door, [2.2, 12, 3], [DOOR_W / 2 - 1.6, 0, 1.2], {})
+  let doorDrag: { id: number; x0: number; off0: number; sx: number; sy: number; moved: boolean } | null = null
+  let doorDragOff: number | null = null // the door's offset while it is held (the frame loop does not ease it then)
+  const doorPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0)
+  const doorPt = new THREE.Vector3()
+  const doorWorld = new THREE.Vector3()
+  const pointerX = (e: { clientX: number; clientY: number }): number | null => {
+    aim(e)
+    door.getWorldPosition(doorWorld)
+    doorPlane.constant = -doorWorld.z
+    return ray.ray.intersectPlane(doorPlane, doorPt) ? doorPt.x : null
+  }
+  const overDoorGrip = (e: PointerEvent): boolean => {
+    aim(e)
+    return ray.intersectObjects(doorHits, false).some((h) => usable(h.object))
+  }
+  const endDoorDrag = (e: { pointerId: number } | null, commit: boolean) => {
+    if (!doorDrag || (e && e.pointerId !== doorDrag.id)) return
+    const d = doorDrag
+    const off = doorDragOff ?? d.off0
+    doorDrag = null
+    doorDragOff = null
+    dragActive = false
+    canvas.removeAttribute('data-grabbing')
+    restoreControls()
+    dirty = true
+    if (!commit) return
+    const wantClosed = d.moved ? off < DOOR_SLIDE / 2 : !a.doorsClosed // a tap without a slide toggles, as before
+    if (wantClosed !== a.doorsClosed) onPick('door')
+  }
   canvas.addEventListener('pointerdown', (e) => {
     consumed = false
+    if ((e.pointerType !== 'mouse' || e.button === 0) && !dragActive && !distDrag && !orbiting && overDoorGrip(e)) {
+      consumed = true
+      controls.enabled = false
+      dragActive = true
+      doorDrag = { id: e.pointerId, x0: pointerX(e) ?? 0, off0: doorOffset, sx: e.clientX, sy: e.clientY, moved: false }
+      canvas.setPointerCapture?.(e.pointerId)
+      canvas.toggleAttribute('data-grabbing', true)
+      return
+    }
     if ((e.pointerType === 'mouse' && e.button !== 0) || a.doorsClosed || dragActive || distDrag || orbiting) return
     const g = grabAt(e)
     if (!g) return
@@ -1364,6 +1408,13 @@ export function mountBench(
     down = e.button === 0 && !consumed ? { x: e.clientX, y: e.clientY } : null
   })
   canvas.addEventListener('pointermove', (e) => {
+    if (doorDrag && e.pointerId === doorDrag.id) {
+      if (!doorDrag.moved && Math.hypot(e.clientX - doorDrag.sx, e.clientY - doorDrag.sy) >= TAP_PX) doorDrag.moved = true
+      const x = pointerX(e)
+      if (doorDrag.moved && x != null) doorDragOff = Math.min(DOOR_SLIDE, Math.max(0, doorDrag.off0 - (x - doorDrag.x0))) // the door follows the hand
+      dirty = true
+      return
+    }
     if (distDrag && e.pointerId === distDrag.id) {
       aim(e)
       const cm = distFromRay(distDrag.which, distDrag.off)
@@ -1371,9 +1422,10 @@ export function mountBench(
       return
     }
     if (e.buttons === 0 && e.pointerType === 'mouse') {
-      const g = !a.doorsClosed && !dragActive ? grabAt(e) : null
-      canvas.toggleAttribute('data-grab', !!g)
-      canvas.style.cursor = g ? '' : hit(e) ? 'pointer' : ''
+      const grip = !dragActive && overDoorGrip(e)
+      const g = !grip && !a.doorsClosed && !dragActive ? grabAt(e) : null
+      canvas.toggleAttribute('data-grab', !!g || grip)
+      canvas.style.cursor = g || grip ? '' : hit(e) ? 'pointer' : ''
     }
   })
   /** The distance drag ends: on release the step is committed (it completes only now, not while the value passes the
@@ -1389,20 +1441,22 @@ export function mountBench(
     hideTip()
     restoreControls()
   }
-  canvas.addEventListener('pointercancel', (e) => endDistDrag(e, false))
-  canvas.addEventListener('lostpointercapture', (e) => endDistDrag(e, false)) // after pointerup it finds no drag left
+  canvas.addEventListener('pointercancel', (e) => (endDistDrag(e, false), endDoorDrag(e, false)))
+  canvas.addEventListener('lostpointercapture', (e) => (endDistDrag(e, false), endDoorDrag(e, false))) // after pointerup it finds no drag left
   addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape' || !distDrag) return
+    if (e.key !== 'Escape' || !(distDrag || doorDrag)) return
     e.stopPropagation()
     endDistDrag(null, false)
+    endDoorDrag(null, false)
   }, true)
   canvas.addEventListener('pointerup', (e) => {
     endDistDrag(e, true)
+    endDoorDrag(e, true)
     const d = down
     down = null
     if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) >= TAP_PX) return
     const p = hit(e)
-    onPick(cur === 'assembly' && p !== 'door' ? null : p) // while assembling, a tap on the chamber is not "open the card"
+    onPick(cur === 'assembly' && p !== 'door' && p !== 'panel' ? null : p) // while assembling, a tap on the chamber is not "open the card"
   })
   // Orbit gestures (assembly: empty space orbits, wheel / pinch zooms, right-drag / two fingers pan). Part grabs never reach
   // here: their capturing pointerdown disables the controls first, and `orbiting` stops a second finger from grabbing mid-gesture.
@@ -1550,8 +1604,11 @@ export function mountBench(
     }
     // Door: slides on the UI clock towards the apparatus state; a refused open gives a short shake.
     const goal = a.doorsClosed ? 0 : DOOR_SLIDE
-    doorOffset = reducedMotion() ? goal : doorOffset + (goal - doorOffset) * Math.min(1, dtS * 10)
-    if (Math.abs(goal - doorOffset) < 0.01) doorOffset = goal
+    if (doorDragOff != null) doorOffset = doorDragOff
+    else {
+      doorOffset = reducedMotion() ? goal : doorOffset + (goal - doorOffset) * Math.min(1, dtS * 10)
+      if (Math.abs(goal - doorOffset) < 0.01) doorOffset = goal
+    }
     shakeT = Math.max(0, shakeT - dtS)
     door.position.x = doorX - doorOffset + (shakeT > 0 ? Math.sin(shakeT * 60) * 0.5 * (shakeT / 0.4) : 0)
 
@@ -1598,7 +1655,13 @@ export function mountBench(
       const rc = tableRect(partsOnTable().length, tableCfg)
       v.set(rc.cx, 0, rc.cz).project(camera)
       const table = { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height }
-      return { zones, grabs, parts, table, view: cur, calls: renderer.info.render.calls, tris: renderer.info.render.triangles }
+      const proj = (o: THREE.Object3D, local = new THREE.Vector3()) => {
+        v.copy(local)
+        o.localToWorld(v).project(camera)
+        return { x: r.left + ((v.x + 1) / 2) * r.width, y: r.top + ((1 - v.y) / 2) * r.height }
+      }
+      const picks = { panel: proj(panelFace), knob: proj(knob), door: proj(door, new THREE.Vector3(DOOR_W / 2 - 1.6, 0, 1.5)) }
+      return { zones, grabs, parts, table, picks, view: cur, calls: renderer.info.render.calls, tris: renderer.info.render.triangles }
     },
     /** The door refused to open (interlock): a short shake. */
     shake: () => {

@@ -22,7 +22,7 @@ const ids = (e: 'bragg' | 'attenuation') => stepsFor(e).map((s) => s.id)
 
 describe('step sequences', () => {
   test('bragg', () => {
-    expect(ids('bragg')).toEqual(['collimator', 's1', 'counterCap', 'counter', 'counterCable', 's2', 'naclCrystal', 'door', 'zero'])
+    expect(ids('bragg')).toEqual(['collimator', 's1', 'counter', 'counterCable', 's2', 'naclCrystal', 'door', 'zero'])
   })
   test('the goniometer and its ribbon cable are permanently installed: no step, part or zone for them', () => {
     for (const e of EXPERIMENTS) {
@@ -32,11 +32,11 @@ describe('step sequences', () => {
       expect(partsFor(e) as readonly string[]).not.toContain('ribbonCable')
       expect(zonesOf(e) as readonly string[]).not.toContain('guideRods')
       expect(zonesOf(e) as readonly string[]).not.toContain('ribbonSocket')
-      expect(stepsFor(e)).toHaveLength(e === 'bragg' ? 9 : 10)
+      expect(stepsFor(e)).toHaveLength(e === 'bragg' ? 8 : 9)
     }
   })
   test('attenuation', () => {
-    expect(ids('attenuation')).toEqual(['collimator', 'counterCap', 'counter', 'counterCable', 'targetStage', 'absorbersI', 's1', 's2', 'door', 'zero'])
+    expect(ids('attenuation')).toEqual(['collimator', 'counter', 'counterCable', 'targetStage', 'absorbersI', 's1', 's2', 'door', 'zero'])
   })
   test('tray order is a fixed shuffle with the distractors mixed in', () => {
     for (const e of ['bragg', 'attenuation'] as const) {
@@ -52,10 +52,9 @@ describe('step sequences', () => {
 })
 
 describe('initial state', () => {
-  test('chamber empty, cap on, stage on holder for attenuation', () => {
+  test('chamber empty, stage on holder for attenuation', () => {
     const b = new Assembly('bragg')
     expect(b.mounted('collimator')).toBe(false)
-    expect(b.mounted('counterCap')).toBe(true)
     expect(new Assembly('attenuation').mounted('targetStage')).toBe(true)
     expect(b.mounted('targetStage')).toBe(true) // Bragg keeps the stage: the crystal lies on it
     expect(b.distance('s1')).toBe(9)
@@ -67,7 +66,6 @@ describe('place', () => {
   test('notYet, wrongZone, alreadyPlaced, wrongPart', () => {
     const a = new Assembly('bragg')
     expect(a.place('counter', 'sensorSeat')).toEqual({ ok: false, reason: 'notYet' })
-    expect(a.place('counterCap', 'tray')).toEqual({ ok: false, reason: 'notYet' })
     expect(a.place('collimator', 'sensorSeat')).toEqual({ ok: false, reason: 'wrongZone' })
     expect(a.place('collimator', 'collimatorMount')).toEqual(ok)
     expect(a.mounted('collimator')).toBe(true)
@@ -79,23 +77,11 @@ describe('place', () => {
     const a = new Assembly('attenuation')
     for (const p of ['naclCrystal', 'absorbersII', 'zrFilter'] as Part[]) expect(a.place(p, 'targetHolder')).toEqual({ ok: false, reason: 'wrongPart' })
   })
-  test('cap and stage leave the device', () => {
+  test('the stage leaves the device', () => {
     const a = new Assembly('attenuation')
     run(a)
-    expect(a.mounted('counterCap')).toBe(false)
     expect(a.mounted('targetStage')).toBe(false)
     expect(a.mounted('absorbersI')).toBe(true)
-  })
-  test('the loose counter is in the chamber during the cap step only (never a second source in the tray)', () => {
-    const a = new Assembly('bragg')
-    expect(a.inChamber('counter')).toBe(false)
-    a.place('collimator', 'collimatorMount')
-    a.setDistance('s1', 5)
-    a.commitDistance('s1')
-    expect(a.current()?.id).toBe('counterCap')
-    expect(a.inChamber('counter')).toBe(true)
-    a.place('counterCap', 'tray')
-    expect(a.inChamber('counter')).toBe(false)
   })
   test('zonesFor shows only the current step', () => {
     const a = new Assembly('bragg')
@@ -124,7 +110,7 @@ describe('distances', () => {
     expect(a.current()?.id).toBe('s1') // in tolerance, but nothing completes until released
     expect(a.commitDistance('s2')).toBe(false)
     expect(a.commitDistance('s1')).toBe(true)
-    expect(a.current()?.id).toBe('counterCap')
+    expect(a.current()?.id).toBe('counter')
     expect(a.setDistance('s1', 9)).toBe(false) // done: locked
     expect(a.distance('s1')).toBe(5.4)
   })
@@ -197,7 +183,6 @@ describe('door gate, done, onChange', () => {
     expect(a.done()).toBe(true)
     expect(a.distance('s1')).toBe(5)
     expect(a.mounted('absorbersI')).toBe(true)
-    expect(a.mounted('counterCap')).toBe(false)
     a.reset()
     expect(a.done()).toBe(false)
     expect(a.index()).toBe(0)

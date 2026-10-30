@@ -23,7 +23,7 @@ describe('tableSpots', () => {
   }
   test('a short last row is centred on the layout axis', () => {
     const l = { cols: 4, dx: 10, dz: 10, cx: 0, z0: 0, elev: 0.5 }
-    const s = tableSpots(['collimator', 'counterCap', 'counter', 'zrFilter', 'counterCable', 'targetStage'], l)
+    const s = tableSpots(['collimator', 'counter', 'zrFilter', 'absorbersII', 'counterCable', 'targetStage'], l)
     expect(s.counterCable!.x).toBeCloseTo(-5, 9)
     expect(s.targetStage!.x).toBeCloseTo(5, 9)
     expect(s.collimator!.x).toBeCloseTo(-15, 9)

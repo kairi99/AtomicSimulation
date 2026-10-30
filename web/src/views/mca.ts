@@ -288,6 +288,7 @@ export function mountMca(root: HTMLElement, a: Apparatus) {
     const { top, ys } = yData()
     plot.setData([xs, ys] as uPlot.AlignedData, false)
     plot.setScale('y', { min: log ? LOG_MIN : 0, max: top })
+    plot.redraw() // setData(…, false) and an unchanged y top draw nothing: the new counts would wait for a rescale
     drawnVersion = mca.version
     drawnCursor = cursor
     showCursor()

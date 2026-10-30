@@ -227,9 +227,11 @@ function openSheet(sheet: HTMLElement, open: boolean, moveFocus = true) {
 // The bench: the camera flies to a part, then its card fades in (CSS delays it by half the flight).
 let bench: ReturnType<typeof mountBench> | null = null
 let focus: Focus = 'room'
-function setFocus(f: Focus) {
+function setFocus(f: Focus, viaPick = false) {
   if (f === focus) return
-  if (f !== 'room' && !ready() && !(f === 'panel' && asm().current()?.id === ZERO_STEP)) return showToast(at().gateHint) // the last step needs the panel alone
+  // A tap on the panel in 3D always opens the panel card (also while assembling: the student may read the keys then);
+  // the dock's own buttons and the other cards stay gated until the bench is assembled.
+  if (f !== 'room' && !ready() && !(viaPick && f === 'panel') && !(f === 'panel' && asm().current()?.id === ZERO_STEP)) return showToast(at().gateHint) // the last step needs the panel alone
   const prev = focus
   focus = f
   stage.dataset.view = f
@@ -241,7 +243,7 @@ function setFocus(f: Focus) {
 }
 function onPick(p: Pick | null) {
   if (p === 'door') toggleDoor()
-  else if (p) setFocus(p)
+  else if (p) setFocus(p, true)
   else setFocus('room') // a tap on the empty room: back out
 }
 let toastTimer: ReturnType<typeof setTimeout> | undefined
@@ -278,20 +280,21 @@ function showToast(text: string) {
   clearTimeout(toastTimer)
   toastTimer = setTimeout(() => (el.dataset.show = 'false'), TOAST_MS)
 }
+function finishForTeacher() {
+  // the absorber tables must be in before the Apparatus can mount a wheel or a filter
+  const go = () => {
+    asm().autoComplete() // mounts the setup and closes the door through syncApparatus
+    apparatus.press('ZERO') // the last step, done for the teacher
+  }
+  if (asm().experiment === 'attenuation' && !absorbersLoaded()) void loadAbsorbers().then(go, () => showToast(at().loadFailed))
+  else go()
+}
 // ── Experiment choice and assembly ──
 let chosen: Experiment | null = null
 const hud = mountAssemblyHud(q('[data-asm]'), benchHooks, {
   toast: (m) => showToast(m),
   teacherShortcut: () => wasAssembled(asm().experiment),
-  onTeacher: () => {
-    // the absorber tables must be in before the Apparatus can mount a wheel or a filter
-    const go = () => {
-      asm().autoComplete() // mounts the setup and closes the door through syncApparatus
-      apparatus.press('ZERO') // the last step, done for the teacher
-    }
-    if (asm().experiment === 'attenuation' && !absorbersLoaded()) void loadAbsorbers().then(go, () => showToast(at().loadFailed))
-    else go()
-  },
+  onTeacher: () => finishForTeacher(),
   title: () => at().cards[asm().experiment].title,
 })
 const chooser = mountChooser(q('[data-chooser]'), {
@@ -400,7 +403,7 @@ import('./views/bench')
       reserve: benchReserve,
       tip: q('[data-tip]'),
     })
-    if (import.meta.env.DEV) (window as unknown as { __benchZones: unknown }).__benchZones = () => bench?.debug()
+    if (import.meta.env.DEV) Object.assign(window, { __benchZones: () => bench?.debug(), __finishAsm: finishForTeacher })
     if (focus !== 'room') bench.fly(focus) // a card opened before the chunk arrived
   })
   .catch(() => {

@@ -40,7 +40,6 @@ const es = {
   kbdTitle: 'Montar sin arrastrar',
   onDevice: 'en el equipo',
   inTray: 'sobre la mesa',
-  inChamber: 'en la cámara',
   placeIn: (part: string) => `Colocar «${part}» en:`,
   cancel: 'Cancelar',
   placedOk: (part: string, zone: string) => `${part}: colocado en ${zone}.`,
@@ -71,7 +70,6 @@ const es = {
   switched: (name: string) => `Experimento: ${name}. Cámara vacía; empieza el montaje.`,
   parts: {
     collimator: 'Colimador',
-    counterCap: 'Tapa protectora del contador',
     counter: 'Contador 559 01',
     counterCable: 'Cable del contador',
     targetStage: 'Platina del blanco',
@@ -82,7 +80,6 @@ const es = {
   } satisfies Record<Part, string>,
   partsShort: {
     collimator: 'Colimador',
-    counterCap: 'Tapa del contador',
     counter: 'Contador',
     counterCable: 'Cable del contador',
     targetStage: 'Platina',
@@ -102,14 +99,13 @@ const es = {
   steps: {
     collimator: ['Coloca el colimador en su ranura', 'Estrecha el haz que sale del tubo.'],
     s1: ['Ajusta s₁ ≈ {cm} cm', 'Fija la mancha y la divergencia del haz en el blanco y deja sitio a los brazos. Suelta al llegar: el paso se confirma al soltar.'],
-    counterCap: ['Quita la tapa protectora del contador', 'La ventana es muy fina; con la tapa puesta el haz no llega al gas. Arrastra la tapa y suéltala sobre la mesa.'],
     counter: ['Coloca el contador en el asiento del sensor', 'Debe quedar alineado con la ranura del sensor.'],
     counterCable: ['Conecta su cable a la toma «GM TUBE»', 'Lleva los pulsos del tubo Geiger-Müller al equipo.'],
     s2: ['Ajusta s₂ ≈ {cm} cm', 'Un s₂ menor da más cuentas pero peor resolución angular: Kα y Kβ pueden dejar de separarse (nota de la ficha). Suelta al llegar.'],
     naclCrystal: ['Pon el cristal de NaCl sobre la platina', 'Colócalo plano sobre la platina, sube la platina hasta el tope y aprieta con suavidad el tornillo moleteado. Tómalo solo por las caras cortas: es frágil e higroscópico.'],
     targetStage: ['Retira la platina del blanco del soporte', 'El soporte debe quedar libre para los absorbentes. Arrastra la platina y suéltala sobre la mesa.'],
     absorbersI: ['Pon el juego I de absorbentes en el soporte', 'El borde guía entra en la ranura curva de 90°.'],
-    door: ['Cierra la puerta', 'Solo con la puerta cerrada el equipo da alta tensión.'],
+    door: ['Cierra la puerta', 'Desliza la puerta por su asa hasta cerrarla (o usa el botón). Solo con la puerta cerrada el equipo da alta tensión.'],
     zero: ['Pulsa ZERO en el panel', 'Lleva el blanco y el sensor a la posición cero guardada: planos reticulares y eje del contador paralelos al haz. La ficha lo calibra en el primer máximo Kα.'],
   } as Record<string, [string, string]>,
   /** Steps worded differently in the attenuation guide (leaflet P6.3.2.1). */
@@ -179,7 +175,6 @@ const en: typeof es = {
   kbdTitle: 'Assemble without dragging',
   onDevice: 'on the apparatus',
   inTray: 'on the table',
-  inChamber: 'in the chamber',
   placeIn: (part) => `Place “${part}” in:`,
   cancel: 'Cancel',
   placedOk: (part, zone) => `${part}: placed in ${zone}.`,
@@ -209,7 +204,6 @@ const en: typeof es = {
   switched: (name) => `Experiment: ${name}. Chamber empty; start assembling.`,
   parts: {
     collimator: 'Collimator',
-    counterCap: 'Counter protective cap',
     counter: 'Counter 559 01',
     counterCable: 'Counter cable',
     targetStage: 'Target stage',
@@ -220,7 +214,6 @@ const en: typeof es = {
   },
   partsShort: {
     collimator: 'Collimator',
-    counterCap: 'Counter cap',
     counter: 'Counter',
     counterCable: 'Counter cable',
     targetStage: 'Target stage',
@@ -240,14 +233,13 @@ const en: typeof es = {
   steps: {
     collimator: ['Put the collimator in its groove', 'It narrows the beam leaving the tube.'],
     s1: ['Set s₁ ≈ {cm} cm', 'It sets the beam spot and divergence at the target and leaves room for the arms. Let go when you get there: the step is confirmed on release.'],
-    counterCap: ['Take the protective cap off the counter', 'The window is very thin; with the cap on, the beam cannot reach the gas. Drag the cap and drop it on the table.'],
     counter: ['Put the counter on the sensor seat', 'It must line up with the sensor slit.'],
     counterCable: ['Plug its cable into the “GM TUBE” socket', 'It carries the Geiger-Müller pulses to the apparatus.'],
     s2: ['Set s₂ ≈ {cm} cm', 'A smaller s₂ gives more counts but poorer angular resolution: Kα and Kβ may stop separating (leaflet note). Let go when you get there.'],
     naclCrystal: ['Put the NaCl crystal on the target stage', 'Lay it flat on the stage, raise the stage to the stop and tighten the knurled screw gently. Hold it by the short faces only: it is fragile and hygroscopic.'],
     targetStage: ['Take the target stage off the holder', 'The holder must be free for the absorbers. Drag the stage and drop it on the table.'],
     absorbersI: ['Put absorber set I on the holder', 'The guide edge goes into the 90° curved groove.'],
-    door: ['Close the door', 'The apparatus gives high voltage only with the door closed.'],
+    door: ['Close the door', 'Slide the door shut by its handle (or use the button). The apparatus gives high voltage only with the door closed.'],
     zero: ['Press ZERO on the panel', 'It returns the target and the sensor to the stored zero: lattice planes and counter axis parallel to the beam. The leaflet calibrates it on the first Kα maximum.'],
   },
   stepsAtt: {
